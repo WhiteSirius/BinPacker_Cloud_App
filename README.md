@@ -136,8 +136,6 @@ docker run -p 8000:8000 binpacker-app
 This is a thesis project. For questions or collaboration:
 
 - **Author**: Andrei Baban
-- **Institution**: Universitatea POLITEHNICA din Bucureşti
-- **Supervisor**: Conf. Dr. Ing. Stefan Mocanu
 
 ## 📄 License
 
