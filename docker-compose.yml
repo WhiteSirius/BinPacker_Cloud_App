@@ -18,14 +18,14 @@ services:
       - postgres
     restart: unless-stopped
 
-  # Frontend Service (will be added in Step 2)
-  # frontend:
-  #   build: ./frontend
-  #   ports:
-  #     - "3000:80"
-  #   depends_on:
-  #     - backend
-  #   restart: unless-stopped
+  # Frontend Service
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
   # PostgreSQL Database
   postgres:
