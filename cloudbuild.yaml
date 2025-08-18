@@ -1,10 +1,11 @@
 steps:
   # Run backend tests
-  - name: 'python:3.9'
+  - name: 'python:3.11'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        python -m pip install --upgrade pip
         pip install -r requirements.txt
         pytest tests/ -v || true
 
