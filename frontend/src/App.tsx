@@ -53,6 +53,7 @@ function Home() {
 }
 
 function App() {
+  const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   const [truckDimensions, setTruckDimensions] = useState({
     length: 13.62,
     width: 2.48,
@@ -75,7 +76,7 @@ function App() {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/optimize', {
+      const response = await fetch(`${API_BASE}/api/v1/optimize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
