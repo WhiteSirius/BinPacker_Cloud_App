@@ -15,7 +15,7 @@ steps:
 
   # Build frontend container
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/binpacker-frontend:$COMMIT_SHA', './frontend']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/binpacker-frontend:$COMMIT_SHA', '--build-arg', 'REACT_APP_API_BASE_URL=https://binpacker-backend-973959934866.europe-west1.run.app', './frontend']
 
   # Push images
   - name: 'gcr.io/cloud-builders/docker'
