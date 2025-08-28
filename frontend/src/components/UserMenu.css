@@ -1,0 +1,276 @@
+.user-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.user-menu {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 380px;
+  max-height: 85vh;
+  overflow-y: auto;
+  margin: 20px;
+  animation: slideIn 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideIn {
+  from { 
+    transform: translateX(100%); 
+    opacity: 0; 
+  }
+  to { 
+    transform: translateX(0); 
+    opacity: 1; 
+  }
+}
+
+.user-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 24px 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.user-menu-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-icon {
+  font-size: 20px;
+}
+
+.user-menu-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: white;
+  padding: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.user-menu-content {
+  padding: 24px;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  border: 1px solid #e9ecef;
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.avatar-icon {
+  font-size: 24px;
+  color: white;
+}
+
+.user-details {
+  flex: 1;
+}
+
+.user-email {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+}
+
+.user-status {
+  margin: 0;
+  font-size: 12px;
+  color: #28a745;
+  font-weight: 500;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-title {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.menu-btn {
+  background: #f8f9fa;
+  color: #333;
+  border: 1px solid #e9ecef;
+  padding: 14px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.menu-btn:hover {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  border-color: transparent;
+}
+
+.menu-btn:active {
+  transform: translateY(0);
+}
+
+.btn-icon {
+  font-size: 16px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.btn-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.btn-arrow {
+  font-size: 12px;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.menu-btn:hover .btn-arrow {
+  transform: translateX(4px);
+  opacity: 1;
+}
+
+.menu-btn.signout-btn {
+  background: #fff5f5;
+  border-color: #fed7d7;
+  color: #e53e3e;
+  margin-top: 8px;
+}
+
+.menu-btn.signout-btn:hover {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: white;
+  border-color: transparent;
+}
+
+.signout-section {
+  border-top: 1px solid #f0f0f0;
+  padding-top: 16px;
+  margin-top: 8px;
+}
+
+/* Responsive Design */
+@media (max-width: 480px) {
+  .user-menu {
+    width: calc(100vw - 40px);
+    margin: 20px;
+    max-height: calc(100vh - 40px);
+  }
+  
+  .user-menu-header {
+    padding: 20px 20px 16px 20px;
+  }
+  
+  .user-menu-content {
+    padding: 20px;
+  }
+  
+  .user-info {
+    padding: 16px;
+  }
+  
+  .menu-btn {
+    padding: 12px 14px;
+  }
+}
+
+/* Scrollbar Styling */
+.user-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.user-menu::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.user-menu::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.user-menu::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+} 

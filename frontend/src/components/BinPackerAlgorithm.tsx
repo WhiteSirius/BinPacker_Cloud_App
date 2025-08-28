@@ -5,6 +5,8 @@ import { auth } from '../firebase/config';
 import TruckVisualization from './TruckVisualization';
 import ItemForm from './ItemForm';
 import ResultsDisplay from './ResultsDisplay';
+import UserMenu from './UserMenu';
+import './UserMenu.css';
 
 interface BinPackerAlgorithmProps {
   onBackToHome: () => void;
@@ -40,6 +42,7 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
   const [error, setError] = useState<string | null>(null);
   const [nextItemId, setNextItemId] = useState<number>(1);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const handleOptimize = async () => {
     if (items.length === 0) {
@@ -96,6 +99,37 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
     }
   };
 
+  const handleUserMenuAction = (action: string) => {
+    switch (action) {
+      case 'profile':
+        // TODO: Navigate to user profile
+        console.log('Navigate to user profile');
+        break;
+      case 'data':
+        // TODO: Navigate to data management
+        console.log('Navigate to data management');
+        break;
+      case 'saved':
+        // TODO: Navigate to saved runs
+        console.log('Navigate to saved optimization runs');
+        break;
+      case 'history':
+        // TODO: Navigate to history
+        console.log('Navigate to optimization history');
+        break;
+      case 'analytics':
+        // TODO: Navigate to analytics
+        console.log('Navigate to performance analytics');
+        break;
+      case 'settings':
+        // TODO: Navigate to settings
+        console.log('Navigate to settings');
+        break;
+      default:
+        console.log('Unknown action:', action);
+    }
+  };
+
   return (
     <div className="binpacker-algorithm">
       {/* Header with Navigation */}
@@ -116,6 +150,13 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
               ← Back
             </button>
             <button 
+              onClick={() => setIsUserMenuOpen(true)}
+              className="nav-button menu-button"
+              aria-label="Open user menu"
+            >
+              ☰
+            </button>
+            <button 
               onClick={handleLogout}
               className="nav-button logout-button"
             >
@@ -124,6 +165,13 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
           </div>
         </div>
       </div>
+
+      {/* User Menu Component */}
+      <UserMenu 
+        isOpen={isUserMenuOpen}
+        onClose={() => setIsUserMenuOpen(false)}
+        onNavigate={handleUserMenuAction}
+      />
 
       <div className="container">
         {/* Truck Configuration */}

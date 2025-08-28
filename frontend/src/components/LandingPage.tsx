@@ -8,6 +8,8 @@ import {
   signOut
 } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import UserMenu from './UserMenu';
+import './UserMenu.css';
 
 interface LandingPageProps {
   onLoginSuccess: () => void;
@@ -20,6 +22,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [showLoginForm, setShowLoginForm] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const getErrorMessage = (errorCode: string) => {
     switch (errorCode) {
@@ -89,6 +92,37 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  const handleUserMenuAction = (action: string) => {
+    switch (action) {
+      case 'profile':
+        // TODO: Navigate to user profile
+        console.log('Navigate to user profile');
+        break;
+      case 'data':
+        // TODO: Navigate to data management
+        console.log('Navigate to data management');
+        break;
+      case 'saved':
+        // TODO: Navigate to saved runs
+        console.log('Navigate to saved optimization runs');
+        break;
+      case 'history':
+        // TODO: Navigate to history
+        console.log('Navigate to optimization history');
+        break;
+      case 'analytics':
+        // TODO: Navigate to analytics
+        console.log('Navigate to performance analytics');
+        break;
+      case 'settings':
+        // TODO: Navigate to settings
+        console.log('Navigate to settings');
+        break;
+      default:
+        console.log('Unknown action:', action);
+    }
+  };
+
   return (
     <div className="landing-page">
       <div className="hero-section">
@@ -106,6 +140,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                 className="cta-button"
               >
                 Access BinPacker Algorithm
+              </button>
+              <button 
+                onClick={() => setIsUserMenuOpen(true)}
+                className="menu-button-small"
+              >
+                ☰ Menu
               </button>
               <button 
                 onClick={handleLogout}
@@ -226,6 +266,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           </div>
         )}
       </div>
+
+      {/* User Menu Component */}
+      <UserMenu 
+        isOpen={isUserMenuOpen}
+        onClose={() => setIsUserMenuOpen(false)}
+        onNavigate={handleUserMenuAction}
+      />
     </div>
   );
 };
