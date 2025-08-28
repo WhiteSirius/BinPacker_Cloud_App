@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase/config';
 import TruckVisualization from './TruckVisualization';
 import ItemForm from './ItemForm';
 import ResultsDisplay from './ResultsDisplay';
@@ -90,15 +88,6 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      onLogout();
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
   const handleUserMenuAction = (action: string) => {
     switch (action) {
       case 'profile':
@@ -155,12 +144,6 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
               aria-label="Open user menu"
             >
               ☰
-            </button>
-            <button 
-              onClick={handleLogout}
-              className="nav-button logout-button"
-            >
-              Log Off
             </button>
           </div>
         </div>
