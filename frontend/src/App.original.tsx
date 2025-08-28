@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Routes, Route, Link, useNavigate } from 'react-router-dom';
 import TruckVisualization from './components/TruckVisualization';
 import ItemForm from './components/ItemForm';
 import ResultsDisplay from './components/ResultsDisplay';
@@ -21,39 +20,7 @@ interface OptimizationResult {
   timestamp: string;
 }
 
-function Home() {
-  const navigate = useNavigate();
-  return (
-    <div className="App">
-      <div className="container" style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div className="header" style={{ textAlign: 'center', padding: '40px 0' }}>
-          <h1>🚛 3D Bin Packing Optimizer</h1>
-          <p>Smart collision-points algorithm for efficient truck loading</p>
-        </div>
-        <div style={{ display: 'grid', gap: 20 }}>
-          <div style={{ background: '#f5f7fb', padding: 20, borderRadius: 8 }}>
-            <h2>About</h2>
-            <p>
-              This project optimizes the loading of cargo in trucks using an improved collision points approach,
-              accounting for stackability, 100% support, and real-world constraints.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button className="btn" onClick={() => alert('Login coming soon')}>
-              🔐 Login
-            </button>
-            <button className="btn" onClick={() => navigate('/app')}>
-              🧪 Test the Optimizer
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function App() {
-  const API_BASE = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
   const [truckDimensions, setTruckDimensions] = useState({
     length: 13.62,
     width: 2.48,
@@ -76,24 +43,14 @@ function App() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/optimize`, {
+      const response = await fetch('/api/v1/optimize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           truck: truckDimensions,
-          items: items.map((it) => ({
-            id: it.id,
-            length: it.length,
-            width: it.width,
-            height: it.height,
-            weight: it.weight,
-            destination: it.destination,
-            can_rotate: true,
-            is_palletized: true,
-            stackability: it.stackability || 'stackable',
-          })),
+          items: items
         }),
       });
 
@@ -125,12 +82,9 @@ function App() {
   return (
     <div className="App">
       <div className="container">
-        <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h1>🚛 3D Bin Packing Optimizer</h1>
-            <p>Advanced algorithm for truck loading optimization</p>
-          </div>
-          <Link to="/" className="btn">← Back to Home</Link>
+        <div className="header">
+          <h1>🚛 3D Bin Packing Optimizer</h1>
+          <p>Advanced algorithm for truck loading optimization</p>
         </div>
 
         {/* Truck Configuration */}
@@ -199,7 +153,7 @@ function App() {
                     alignItems: 'center'
                   }}>
                     <span>
-                      {item.id}: {item.length}m × {item.width}m × {item.height}m ({item.weight}kg) — {item.stackability}
+                      {item.id}: {item.length}m × {item.width}m × {item.height}m ({item.weight}kg)
                     </span>
                     <button 
                       onClick={() => removeItem(index)}
@@ -277,11 +231,4 @@ function App() {
   );
 }
 
-export default function Root() {
-  return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/app" element={<App />} />
-    </Routes>
-  );
-}
+export default App; 
