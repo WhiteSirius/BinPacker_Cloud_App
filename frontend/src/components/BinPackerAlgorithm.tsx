@@ -115,7 +115,15 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
     });
 
     try {
-      const response = await fetch('/api/v1/optimize', {
+      // Get API base URL from environment or use default
+      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+      const apiUrl = `${API_BASE}/api/v1/optimize`;
+      
+      console.log('🌐 Making API call to:', apiUrl);
+      console.log('🔧 API_BASE from env:', process.env.REACT_APP_API_BASE_URL);
+      console.log('📤 Request data:', requestData);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
