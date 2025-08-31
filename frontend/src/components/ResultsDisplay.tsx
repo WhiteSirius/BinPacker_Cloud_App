@@ -55,7 +55,8 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ result, onSelectItem, s
                 background: selectedItemId === item.id ? '#c8e6c9' : '#f1f8e9',
                 cursor: onSelectItem ? 'pointer' : 'default'
               }}>
-                <strong>{item.id}</strong> — <em>{(item.stackability || 'stackable').toString()}</em><br />
+                <strong>{item.id}</strong> — Priority: {item.priority || 'N/A'} — <em>{(item.stackability || 'stackable').toString()}</em><br />
+                Route: {item.route || 'N/A'}<br />
                 Position: ({item.position.x.toFixed(2)}, {item.position.y.toFixed(2)}, {item.position.z.toFixed(2)})<br />
                 Dimensions: {item.dimensions.length.toFixed(2)}m × {item.dimensions.width.toFixed(2)}m × {item.dimensions.height.toFixed(2)}m<br />
                 Weight: {item.weight} kg
@@ -76,7 +77,8 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ result, onSelectItem, s
                 borderRadius: '4px',
                 background: '#ffebee'
               }}>
-                <strong>{item.id}</strong> — <em>{(item.stackability || 'stackable').toString()}</em><br />
+                <strong>{item.id}</strong> — Priority: {item.priority || 'N/A'} — <em>{(item.stackability || 'stackable').toString()}</em><br />
+                Route: {item.route || 'N/A'}<br />
                 Volume: {item.volume.toFixed(3)} m³<br />
                 Weight: {item.weight} kg
               </div>

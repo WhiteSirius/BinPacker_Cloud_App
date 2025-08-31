@@ -4,7 +4,9 @@ import TruckVisualization from './TruckVisualization';
 import ItemForm from './ItemForm';
 import ResultsDisplay from './ResultsDisplay';
 import UserMenu from './UserMenu';
+import ExcelImport from './ExcelImport';
 import './UserMenu.css';
+import './ExcelImport.css';
 
 interface BinPackerAlgorithmProps {
   onBackToHome: () => void;
@@ -41,15 +43,76 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
   const [nextItemId, setNextItemId] = useState<number>(1);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [failedItems, setFailedItems] = useState<any[]>([]);
+  const [editingItem, setEditingItem] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<string>('all');
+
+  // Debug logging for failed items
+  console.log('Current failedItems state:', failedItems);
+  console.log('Current failedItems length:', failedItems.length);
+
+  // Get unique routes from items
+  const uniqueRoutes = ['all', ...Array.from(new Set(items.map(item => item.route).filter(Boolean)))];
+  
+  // Debug logging for routes
+  console.log('All items:', items);
+  console.log('Items with routes:', items.map(item => ({ id: item.id, route: item.route })));
+  console.log('Unique routes found:', uniqueRoutes);
+  console.log('Selected route:', selectedRoute);
+  
+  // Filter items by selected route
+  const filteredItems = selectedRoute === 'all' ? items : items.filter(item => item.route === selectedRoute);
+  console.log('Filtered items:', filteredItems);
 
   const handleOptimize = async () => {
-    if (items.length === 0) {
-      setError('Please add at least one item before optimizing.');
+    // Use filtered items instead of all items
+    const itemsToOptimize = selectedRoute === 'all' ? items : filteredItems;
+    
+    if (itemsToOptimize.length === 0) {
+      setError(`No items available for optimization. ${selectedRoute === 'all' ? 'Please add some items.' : `No items found for route: ${selectedRoute}`}`);
       return;
     }
 
     setLoading(true);
     setError(null);
+
+    // Debug: Log the data being sent
+    const requestData = {
+      truck: truckDimensions,
+      items: itemsToOptimize.map(item => ({
+        ...item,
+        // Ensure stackability is in correct format for backend
+        stackability: item.stackability?.toLowerCase().replace('-', '_') || 'stackable',
+        // Keep both route and destination for backend compatibility
+        route: item.route || '',
+        destination: item.route || '',
+        // Ensure priority is always a valid string
+        priority: item.priority?.toString() || '1'
+      }))
+    };
+    console.log('🚀 Sending optimization request with data:', requestData);
+    console.log('📦 Items to optimize:', itemsToOptimize.length);
+    console.log('📦 Total items available:', items.length);
+    console.log('🚛 Truck dimensions:', truckDimensions);
+    console.log('🛣️ Selected route:', selectedRoute);
+    
+    // Debug: Log each item being sent
+    console.log('🔍 Items being sent to backend:');
+    requestData.items.forEach((item, index) => {
+      console.log(`Item ${index + 1}:`, {
+        id: item.id,
+        length: item.length,
+        width: item.width,
+        height: item.height,
+        weight: item.weight,
+        stackability: item.stackability,
+        route: item.route,
+        destination: item.destination,
+        priority: item.priority
+      });
+    });
 
     try {
       const response = await fetch('/api/v1/optimize', {
@@ -57,19 +120,40 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          truck: truckDimensions,
-          items: items
-        }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to get detailed error message from response
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          console.log('🔍 Error response data:', errorData);
+          
+          if (errorData.detail) {
+            if (Array.isArray(errorData.detail)) {
+              // Handle validation errors array
+              const validationErrors = errorData.detail.map((err: any) => 
+                `${err.loc?.join('.')}: ${err.msg}`
+              ).join(', ');
+              errorMessage += ` - Validation errors: ${validationErrors}`;
+            } else {
+              errorMessage += ` - ${errorData.detail}`;
+            }
+          } else if (errorData.message || errorData.error) {
+            errorMessage += ` - ${errorData.message || errorData.error}`;
+          }
+        } catch (e) {
+          console.log('Could not parse error response:', e);
+          // If we can't parse error response, just use status
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       setResult(data);
     } catch (err) {
+      console.error('❌ Optimization error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
@@ -77,11 +161,29 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
   };
 
   const addItem = (item: any) => {
-    const assignedId = (item.id && item.id.toString().trim() !== '') ? item.id.toString().trim() : String(nextItemId);
-    setItems([...items, { ...item, id: assignedId }]);
-    if (!item.id || item.id.toString().trim() === '') {
-      setNextItemId(nextItemId + 1);
-    }
+    // Always assign the next sequential ID and ensure priority is valid
+    const assignedId = String(nextItemId);
+    const itemWithDefaults = {
+      ...item,
+      id: assignedId,
+      priority: item.priority?.toString() || '1',
+      route: item.route || '',
+      stackability: item.stackability || 'stackable'
+    };
+    setItems([...items, itemWithDefaults]);
+    setNextItemId(nextItemId + 1);
+  };
+
+  // Clean up existing items to ensure all have valid priority values
+  const cleanupItems = () => {
+    setItems(prevItems => 
+      prevItems.map(item => ({
+        ...item,
+        priority: (item.priority || '1').toString(),
+        route: item.route || '',
+        stackability: item.stackability || 'stackable'
+      }))
+    );
   };
 
   const removeItem = (index: number) => {
@@ -119,6 +221,119 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
     }
   };
 
+  const handleEditItem = (editedItem: any) => {
+    if (editingItem) {
+      // Check if this was a failed item
+      const isFailedItem = failedItems.some(item => item.id === editingItem.id);
+      
+      if (isFailedItem) {
+        // Move from failed items to main items if all required fields are present
+        if (editedItem.length && editedItem.width && editedItem.height && editedItem.weight) {
+          setItems(prevItems => [...prevItems, editedItem]);
+          setFailedItems(prevFailed => prevFailed.filter(item => item.id !== editingItem.id));
+          console.log('Failed item fixed and moved to main items');
+        } else {
+          // Update the failed item with new data
+          setFailedItems(prevFailed => 
+            prevFailed.map(item => 
+              item.id === editingItem.id ? { ...editedItem, failureReason: item.failureReason } : item
+            )
+          );
+        }
+      } else {
+        // Update existing item in main items
+        setItems(prevItems => 
+          prevItems.map(item => 
+            item.id === editingItem.id ? editedItem : item
+          )
+        );
+      }
+      
+      setEditingItem(null);
+      setIsEditModalOpen(false);
+    }
+  };
+
+    const handleExcelImport = (importedData: any[], mapping: any) => {
+    try {
+      console.log('Excel Import - Raw data:', importedData);
+      console.log('Excel Import - Mapping:', mapping);
+      
+      const validItems: any[] = [];
+      const failedItemsList: any[] = [];
+      
+      // Process each imported item
+      let currentId = nextItemId;
+      importedData.forEach((item, index) => {
+        console.log(`Processing imported item ${index}:`, item);
+        console.log(`Item route value: "${item.route}"`);
+        console.log(`Item has route field: ${'route' in item}`);
+        
+        // Check if item has all required fields
+        const hasRequiredFields = item.length && item.width && item.height && item.weight;
+        
+        if (hasRequiredFields) {
+          // Handle duplicate functionality
+          const duplicateCount = parseInt(item.duplicate) || 1;
+          const actualCount = duplicateCount > 0 ? duplicateCount : 1;
+          
+          for (let i = 0; i < actualCount; i++) {
+            const transformedItem = {
+              id: String(currentId), // Use current ID and increment
+              length: parseFloat(item.length) || 0,
+              width: parseFloat(item.width) || 0,
+              height: parseFloat(item.height) || 0,
+              weight: parseFloat(item.weight) || 0,
+              stackability: item.stackability || 'stackable',
+              route: item.route || '',
+              priority: (item.priority || '1').toString(), // Ensure priority is always a string
+              notes: item.notes || ''
+            };
+            console.log(`Transformed item ${i}:`, transformedItem);
+            validItems.push(transformedItem);
+            currentId++; // Increment for next item
+          }
+        } else {
+          // Add to failed items with reason
+          const failedItem = {
+            ...item,
+            id: item.id || `failed_${index}`,
+            failureReason: `Missing required fields: ${[
+              !item.length && 'Length',
+              !item.width && 'Width', 
+              !item.height && 'Height',
+              !item.weight && 'Weight'
+            ].filter(Boolean).join(', ')}`
+          };
+          failedItemsList.push(failedItem);
+        }
+      });
+
+      // Add valid items to main items list
+      if (validItems.length > 0) {
+        setItems(prevItems => [...prevItems, ...validItems]);
+        setNextItemId(currentId); // Use the final currentId value
+        console.log(`Successfully imported ${validItems.length} items from Excel`);
+        console.log(`Next item ID will be: ${currentId}`);
+      }
+
+      // Add failed items to failed items list
+      if (failedItemsList.length > 0) {
+        setFailedItems(prevFailed => [...prevFailed, ...failedItemsList]);
+        console.log(`${failedItemsList.length} items failed to import and added to failed items queue`);
+        console.log('Failed items details:', failedItemsList);
+        console.log('Current failedItems state length:', failedItems.length);
+      }
+
+      // Close the import modal
+      setIsExcelImportOpen(false);
+      
+    } catch (error) {
+      console.error('Error in handleExcelImport:', error);
+      setError('Failed to import Excel data. Please check the file format.');
+    }
+  };
+
   return (
     <div className="binpacker-algorithm">
       {/* Header with Navigation */}
@@ -149,14 +364,133 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
         </div>
       </div>
 
-      {/* User Menu Component */}
-      <UserMenu 
-        isOpen={isUserMenuOpen}
-        onClose={() => setIsUserMenuOpen(false)}
-        onNavigate={handleUserMenuAction}
-      />
+              {/* User Menu Component */}
+        <UserMenu 
+          isOpen={isUserMenuOpen}
+          onClose={() => setIsUserMenuOpen(false)}
+          onNavigate={handleUserMenuAction}
+        />
 
-      <div className="container">
+        {/* Excel Import Component */}
+        <ExcelImport 
+          isOpen={isExcelImportOpen}
+          onClose={() => setIsExcelImportOpen(false)}
+          onImport={handleExcelImport}
+        />
+
+        {/* Edit Item Modal */}
+        {isEditModalOpen && editingItem && (
+          <div className="edit-modal-overlay" onClick={() => setIsEditModalOpen(false)}>
+            <div className="edit-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="edit-modal-header">
+                <h3>✏️ Edit Item: {editingItem.id}</h3>
+                <button className="close-btn" onClick={() => setIsEditModalOpen(false)}>×</button>
+              </div>
+              <div className="edit-modal-content">
+                <div className="edit-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Length (m)</label>
+                      <input
+                        type="number"
+                        value={editingItem.length || ''}
+                        onChange={(e) => setEditingItem({...editingItem, length: parseFloat(e.target.value) || 0})}
+                        step="0.1"
+                        min="0"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Width (m)</label>
+                      <input
+                        type="number"
+                        value={editingItem.width || ''}
+                        onChange={(e) => setEditingItem({...editingItem, width: parseFloat(e.target.value) || 0})}
+                        step="0.1"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Height (m)</label>
+                      <input
+                        type="number"
+                        value={editingItem.height || ''}
+                        onChange={(e) => setEditingItem({...editingItem, height: parseFloat(e.target.value) || 0})}
+                        step="0.1"
+                        min="0"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Weight (kg)</label>
+                      <input
+                        type="number"
+                        value={editingItem.weight || ''}
+                        onChange={(e) => setEditingItem({...editingItem, weight: parseFloat(e.target.value) || 0})}
+                        step="0.1"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                                         <div className="form-group">
+                       <label>Stackability</label>
+                       <select
+                         value={editingItem.stackability || 'stackable'}
+                         onChange={(e) => setEditingItem({...editingItem, stackability: e.target.value})}
+                       >
+                         <option value="stackable">Stackable</option>
+                         <option value="semi_stackable">Semi-stackable</option>
+                         <option value="unstackable">Unstackable</option>
+                       </select>
+                     </div>
+                                         <div className="form-group">
+                       <label>Priority (Loading Order)</label>
+                       <select
+                         value={editingItem.priority || '1'}
+                         onChange={(e) => setEditingItem({...editingItem, priority: e.target.value})}
+                       >
+                         <option value="1">1 - First Priority</option>
+                         <option value="2">2 - Second Priority</option>
+                         <option value="3">3 - Third Priority</option>
+                         <option value="4">4 - Fourth Priority</option>
+                         <option value="5">5 - Fifth Priority</option>
+                       </select>
+                     </div>
+                  </div>
+                                     <div className="form-group">
+                     <label>Route</label>
+                     <input
+                       type="text"
+                       value={editingItem.route || ''}
+                       onChange={(e) => setEditingItem({...editingItem, route: e.target.value})}
+                       placeholder="Enter route"
+                     />
+                   </div>
+                  <div className="form-group">
+                    <label>Notes</label>
+                    <textarea
+                      value={editingItem.notes || ''}
+                      onChange={(e) => setEditingItem({...editingItem, notes: e.target.value})}
+                      placeholder="Enter notes"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+                <div className="edit-modal-actions">
+                  <button className="btn-secondary" onClick={() => setIsEditModalOpen(false)}>
+                    Cancel
+                  </button>
+                  <button className="btn-primary" onClick={() => handleEditItem(editingItem)}>
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      
+        <div className="container">
         {/* Truck Configuration */}
         <div className="form-section">
           <h2>Truck Configuration</h2>
@@ -205,52 +539,226 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
 
         {/* Item Management */}
         <div className="form-section">
-          <h2>Items to Pack</h2>
+          <div className="section-header">
+            <h2>Items to Pack</h2>
+            <div className="section-actions">
+              <button 
+                onClick={() => setIsExcelImportOpen(true)}
+                className="excel-import-btn"
+                title="Import items from Excel file"
+              >
+                📊 Import Excel
+              </button>
+            </div>
+          </div>
           <ItemForm onAddItem={addItem} />
           
-          {items.length > 0 && (
-            <div style={{ marginTop: '20px' }}>
-              <h3>Current Items ({items.length})</h3>
+           {items.length > 0 && (
+             <div style={{ marginTop: '20px' }}>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                 <h3>Current Items ({filteredItems.length})</h3>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                   <label style={{ fontWeight: 'bold' }}>Route: </label>
+                   <select
+                     value={selectedRoute}
+                     onChange={(e) => setSelectedRoute(e.target.value)}
+                     style={{ padding: '5px', borderRadius: '4px', border: '1px solid #ddd' }}
+                   >
+                     {uniqueRoutes.map(route => (
+                       <option key={route} value={route}>
+                         {route === 'all' ? 'All Routes' : route}
+                       </option>
+                     ))}
+                   </select>
+                   <button
+                     onClick={cleanupItems}
+                     style={{
+                       background: '#28a745',
+                       color: 'white',
+                       border: 'none',
+                       padding: '5px 10px',
+                       borderRadius: '4px',
+                       cursor: 'pointer',
+                       fontSize: '0.9rem',
+                       marginRight: '10px'
+                     }}
+                     title="Fix priority values for all items"
+                   >
+                     🔧 Fix Priorities
+                   </button>
+                   <button
+                     onClick={() => {
+                       setItems([]);
+                       setNextItemId(1);
+                       setSelectedRoute('all');
+                     }}
+                     style={{
+                       background: '#dc3545',
+                       color: 'white',
+                       border: 'none',
+                       padding: '5px 10px',
+                       borderRadius: '4px',
+                       cursor: 'pointer',
+                       fontSize: '0.9rem'
+                     }}
+                     title="Remove all items"
+                   >
+                     🗑️ Remove All
+                   </button>
+                 </div>
+               </div>
+               <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                 {filteredItems.map((item, index) => {
+                   // Priority-based colors
+                   const priorityColors: { [key: string]: string } = {
+                     '1': '#e3f2fd', // Light blue for priority 1
+                     '2': '#f3e5f5', // Light purple for priority 2
+                     '3': '#fff3e0', // Light orange for priority 3
+                     '4': '#f1f8e9', // Light green for priority 4
+                     '5': '#ffebee'  // Light red for priority 5
+                   };
+                   
+                   return (
+                     <div key={item.id} style={{ 
+                       padding: '10px', 
+                       border: '1px solid #ddd', 
+                       marginBottom: '5px', 
+                       borderRadius: '4px',
+                       backgroundColor: priorityColors[item.priority] || '#ffffff',
+                       display: 'flex',
+                       justifyContent: 'space-between',
+                       alignItems: 'center'
+                     }}>
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                         <span style={{ fontWeight: 'bold' }}>
+                           {index + 1}: {item.length}m × {item.width}m × {item.height}m ({item.weight}kg)
+                         </span>
+                         <span style={{ fontSize: '0.9rem', color: '#666' }}>
+                           Route: {item.route || 'N/A'} | Priority: {item.priority} | Stackability: {item.stackability}
+                         </span>
+                       </div>
+                       <div style={{ display: 'flex', gap: '8px' }}>
+                         <button 
+                           onClick={() => {
+                             setEditingItem(item);
+                             setIsEditModalOpen(true);
+                           }}
+                           style={{ 
+                             background: '#ffc107', 
+                             color: '#212529', 
+                             border: 'none', 
+                             padding: '5px 10px', 
+                             borderRadius: '3px',
+                             cursor: 'pointer'
+                           }}
+                         >
+                           ✏️ Edit
+                         </button>
+                         <button 
+                           onClick={() => removeItem(index)}
+                           style={{ 
+                             background: '#dc3545', 
+                             color: 'white', 
+                             border: 'none', 
+                             padding: '5px 10px', 
+                             borderRadius: '3px',
+                             cursor: 'pointer'
+                           }}
+                         >
+                           🗑️ Remove
+                         </button>
+                       </div>
+                     </div>
+                   );
+                 })}
+               </div>
+             </div>
+           )}
+
+          {/* Failed Items Queue */}
+          {/* Debug: Always show failed items section */}
+          <div style={{ marginTop: '20px' }}>
+            <h3>❌ Failed Items ({failedItems.length})</h3>
+            {failedItems.length === 0 ? (
+              <p style={{ color: '#666', fontStyle: 'italic' }}>No failed items at the moment</p>
+            ) : (
               <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                {items.map((item, index) => (
+                {failedItems.map((item, index) => (
                   <div key={item.id} style={{ 
                     padding: '10px', 
-                    border: '1px solid #ddd', 
+                    border: '1px solid #dc3545', 
                     marginBottom: '5px', 
                     borderRadius: '4px',
+                    backgroundColor: '#f8d7da',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center'
                   }}>
-                    <span>
-                      {item.id}: {item.length}m × {item.width}m × {item.height}m ({item.weight}kg)
-                    </span>
-                    <button 
-                      onClick={() => removeItem(index)}
-                      style={{ 
-                        background: '#dc3545', 
-                        color: 'white', 
-                        border: 'none', 
-                        padding: '5px 10px', 
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Remove
-                    </button>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: '#721c24', fontWeight: 'bold', marginBottom: '4px' }}>
+                        {item.id}: {item.length || 0}m × {item.width || 0}m × {item.height || 0}m ({item.weight || 0}kg)
+                      </div>
+                      <div style={{ color: '#721c24', fontSize: '0.9rem' }}>
+                        {item.failureReason}
+                      </div>
+                      <div style={{ color: '#721c24', fontSize: '0.9rem' }}>
+                        Route: {item.route || 'N/A'} | Priority: {item.priority || 'N/A'} | Stackability: {item.stackability || 'N/A'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button 
+                        onClick={() => {
+                          setEditingItem(item);
+                          setIsEditModalOpen(true);
+                        }}
+                        style={{ 
+                          background: '#ffc107', 
+                          color: '#212529', 
+                          border: 'none', 
+                          padding: '5px 10px', 
+                          borderRadius: '3px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setFailedItems(prev => prev.filter((_, i) => i !== index));
+                        }}
+                        style={{ 
+                          background: '#dc3545', 
+                          color: 'white', 
+                          border: 'none', 
+                          padding: '5px 10px', 
+                          borderRadius: '3px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🗑️ Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Optimization Button */}
         <div className="form-section">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '0.9rem', color: '#666' }}>
+              {selectedRoute === 'all' 
+                ? `Will optimize ${items.length} items from all routes`
+                : `Will optimize ${filteredItems.length} items from route: ${selectedRoute}`
+              }
+            </span>
+          </div>
           <button 
             className="btn" 
             onClick={handleOptimize}
-            disabled={loading || items.length === 0}
+            disabled={loading || (selectedRoute === 'all' ? items.length === 0 : filteredItems.length === 0)}
           >
             {loading ? 'Optimizing...' : '🚀 Run Optimization'}
           </button>

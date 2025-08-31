@@ -67,6 +67,8 @@ class Item:
     weight: float
     can_rotate: bool = True
     destination: str = ""
+    route: str = ""
+    priority: str = "1"
     is_palletized: bool = False  # kept for backward-compat; ignored by rotation logic
     stackability: Stackability = Stackability.STACKABLE
     
@@ -132,11 +134,12 @@ class PlacedItem:
 class PointManager:
     """Manages available placement points with spatial awareness"""
     
-    def __init__(self):
+    def __init__(self, truck_dimensions: Tuple[float, float, float] = None):
         self.available_points: List[Point3D] = []
         self.used_points: List[Point3D] = []
         self.blocked_points: List[Point3D] = []
         self.point_priorities: Dict[Point3D, int] = {}
+        self.truck_dimensions = truck_dimensions or (13.62, 2.48, 2.7)  # Default EU truck dimensions
     
     def add_point(self, point: Point3D, priority: int = 0):
         """Add a new available point"""
@@ -184,7 +187,7 @@ class PointManager:
 
         Modifications:
           - SEMI_STACKABLE: do not generate top point (no items above this one)
-          - UNSTACKABLE: do not generate top point; also block width alongside this item's length span
+          - UNSTACKABLE: do not generate top point; also block entire width alongside this item's length span
         """
         x, y, z = placed_item.position.x, placed_item.position.y, placed_item.position.z
         l, w, h = placed_item.rotation
@@ -198,14 +201,51 @@ class PointManager:
         if placed_item.item.stackability == Stackability.STACKABLE:
             candidates.insert(1, Point3D(x, y, z + h))  # between width and length per sweep order
 
-        # Do not generate top point for semi/unstackable (already handled). No extra blocked points here.
+        # For UNSTACKABLE items: block the entire width of the truck for their length span
+        if placed_item.item.stackability == Stackability.UNSTACKABLE:
+            self._block_width_for_unstackable(placed_item)
 
         new_points: List[Point3D] = []
         for point in candidates:
             if point not in self.available_points and point not in self.used_points and point not in self.blocked_points:
                 new_points.append(point)
+            else:
+                logger.info(f"Point {point} was filtered out: available={point in self.available_points}, used={point in self.used_points}, blocked={point in self.blocked_points}")
 
+        logger.info(f"Generated {len(new_points)} new points for item {placed_item.item.id} ({placed_item.item.stackability.value}): {new_points}")
         return new_points
+
+    def _block_width_for_unstackable(self, placed_item: PlacedItem):
+        """Block the entire width of the truck for unstackable items along their length span"""
+        x, y, z = placed_item.position.x, placed_item.position.y, placed_item.position.z
+        l, w, h = placed_item.rotation
+        
+        # Get truck width from truck dimensions
+        truck_length, truck_width, truck_height = self.truck_dimensions
+        
+        # Block the entire width of the truck for the length span of this unstackable item
+        # This prevents any items from being placed beside the unstackable item
+        # We block from the item's x position to x + length, and from y to truck_width
+        # BUT we do NOT block the point at (x + l, y, z) - that's for items behind the unstackable item
+        
+        # Use floating point precision to avoid blocking the point after the item
+        step = 0.1  # Small step for precision
+        x_start = x
+        x_end = x + l - step  # Don't block the exact point after the item
+        
+        current_x = x_start
+        while current_x <= x_end:
+            current_y = y
+            while current_y <= truck_width:
+                blocked_point = Point3D(current_x, current_y, z)
+                if (blocked_point not in self.available_points and 
+                    blocked_point not in self.used_points and 
+                    blocked_point not in self.blocked_points):
+                    self.blocked_points.append(blocked_point)
+                current_y += step
+            current_x += step
+        
+        logger.info(f"Blocked width for unstackable item {placed_item.item.id} from x={x} to x={x+l-0.01}, y={y} to y={truck_width}")
 
 class CollisionDetector:
     """Advanced collision detection with spatial indexing"""
@@ -380,7 +420,7 @@ class BinPackerV3:
         self.unplaced_items: List[Item] = []
         
         # Initialize managers
-        self.point_manager = PointManager()
+        self.point_manager = PointManager(self.truck_dimensions)
         self.collision_detector = CollisionDetector()
         self.support_validator = SupportValidator()
         self.weight_manager = WeightManager()
@@ -392,49 +432,114 @@ class BinPackerV3:
     
     def pack_items(self, items: List[Item]) -> Dict[str, Any]:
         """
-        Main packing algorithm - clean and modular implementation
+        Main packing algorithm with priority-based grouping
         """
         logger.info(f"Starting packing algorithm with {len(items)} items")
         
-        # Sort items by priority (volume, weight, destination)
-        sorted_items = self._sort_items_by_priority(items)
-        self.unplaced_items = sorted_items.copy()
+        # Group items by priority
+        priority_groups = self._group_items_by_priority(items)
+        self.unplaced_items = []
         
-        # Main packing loop
-        while self.point_manager.available_points and self.unplaced_items:
-            current_point = self.point_manager.get_next_point()
-            if not current_point:
-                break
+        # Log priority groups
+        logger.info("Priority groups created:")
+        for priority in sorted(priority_groups.keys()):
+            logger.info(f"  Priority {priority}: {len(priority_groups[priority])} items")
+        
+        # Process each priority group sequentially
+        for priority in sorted(priority_groups.keys()):
+            priority_items = priority_groups[priority]
+            logger.info(f"Processing Priority {priority} group with {len(priority_items)} items")
             
-            placed_item = self._try_place_item_at_point(current_point)
+            # Add items from this priority group to unplaced items
+            self.unplaced_items.extend(priority_items)
             
-            if placed_item:
-                self._handle_successful_placement(placed_item, current_point)
-                logger.info(f"Successfully placed item {placed_item.item.id} at {current_point}")
-            else:
-                self._handle_failed_placement(current_point)
-                logger.info(f"Failed to place any item at {current_point}")
+            # Process all items in this priority group
+            while self.point_manager.available_points and self.unplaced_items:
+                current_point = self.point_manager.get_next_point()
+                if not current_point:
+                    break
+                
+                logger.info(f"Trying to place item at point {current_point}. Available points: {len(self.point_manager.available_points)}")
+                
+                placed_item = self._try_place_item_at_point(current_point)
+                
+                if placed_item:
+                    self._handle_successful_placement(placed_item, current_point)
+                    logger.info(f"Successfully placed Priority {priority} item {placed_item.item.id} at {current_point}")
+                else:
+                    self._handle_failed_placement(current_point)
+                    logger.info(f"Failed to place any Priority {priority} item at {current_point}")
+            
+            # If we still have unplaced items from this priority group, they remain unplaced
+            # and we move to the next priority group
+            logger.info(f"Priority {priority} group complete. {len(self.unplaced_items)} items remain unplaced")
         
         # Generate results
         return self._generate_packing_result()
     
-    def _sort_items_by_priority(self, items: List[Item]) -> List[Item]:
-        """Sort items by priority with stackability precedence.
-
-        Priority order:
-          1) Unstackable first
-          2) Semi-stackable second
-          3) Stackable last
-          4) Within each group: by volume desc, then weight desc, then destination
-        """
+    def _group_items_by_priority(self, items: List[Item]) -> Dict[int, List[Item]]:
+        """Group items by priority and sort within each group"""
+        priority_groups = {}
+        
+        for item in items:
+            # Get priority value
+            try:
+                priority = int(item.priority) if hasattr(item, 'priority') and item.priority else 999
+            except (ValueError, TypeError):
+                priority = 999
+            
+            if priority not in priority_groups:
+                priority_groups[priority] = []
+            priority_groups[priority].append(item)
+        
+        # Sort items within each priority group
         stack_rank = {
             Stackability.UNSTACKABLE: 0,
             Stackability.STACKABLE: 1,
             Stackability.SEMI_STACKABLE: 2,
         }
+        
+        for priority in priority_groups:
+            priority_groups[priority] = sorted(
+                priority_groups[priority],
+                key=lambda x: (
+                    stack_rank.get(x.stackability, 2),  # Primary: stackability
+                    -x.volume,  # Secondary: volume (descending)
+                    -x.weight   # Tertiary: weight (descending)
+                )
+            )
+        
+        return priority_groups
+
+    def _sort_items_by_priority(self, items: List[Item]) -> List[Item]:
+        """Sort items by loading priority order.
+
+        Priority order:
+          1) Numeric priority (1, 2, 3, 4, 5) - Priority 1 loads first (unloads last)
+          2) Within each priority group: by stackability (Unstackable > Stackable > Semi-stackable)
+          3) Within each stackability group: by volume desc, then weight desc
+        """
+        # Convert priority to integer for proper sorting (1, 2, 3, 4, 5)
+        def get_priority_value(item):
+            try:
+                return int(item.priority) if hasattr(item, 'priority') and item.priority else 999
+            except (ValueError, TypeError):
+                return 999
+        
+        stack_rank = {
+            Stackability.UNSTACKABLE: 0,
+            Stackability.STACKABLE: 1,
+            Stackability.SEMI_STACKABLE: 2,
+        }
+        
         return sorted(
             items,
-            key=lambda x: (stack_rank.get(x.stackability, 2), -x.volume, -x.weight, x.destination)
+            key=lambda x: (
+                get_priority_value(x),  # Primary: numeric priority (1, 2, 3...)
+                stack_rank.get(x.stackability, 2),  # Secondary: stackability
+                -x.volume,  # Tertiary: volume (descending)
+                -x.weight   # Quaternary: weight (descending)
+            )
         )
     
     def _try_place_item_at_point(self, point: Point3D) -> Optional[PlacedItem]:
@@ -474,9 +579,40 @@ class BinPackerV3:
         if not self.weight_manager.validate_placement(item, point, rotation):
             return PlacementResult(success=False, reason="weight_violation")
         
+        # Additional check: ensure unstackable items don't have anything above them
+        if item.stackability == Stackability.UNSTACKABLE:
+            if not self._check_no_items_above_unstackable(item, point, rotation):
+                return PlacementResult(success=False, reason="unstackable_cannot_have_items_above")
+        
         # All constraints satisfied - place the item
         placed_item = PlacedItem(item, point, rotation)
         return PlacementResult(success=True, placed_item=placed_item)
+    
+    def _check_no_items_above_unstackable(self, item: Item, point: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check that no items are placed above unstackable items"""
+        # For unstackable items, we need to ensure that no other items are placed above them
+        # This is already handled by the collision detection, but we can add additional validation
+        
+        # Create a temporary placed item to check its bounds
+        temp_placed = PlacedItem(item, point, rotation)
+        temp_bounds = temp_placed.bounds
+        
+        # Check if any existing placed items would be above this unstackable item
+        for placed_item in self.placed_items:
+            if placed_item.position.z > temp_bounds[1].z:  # If existing item is above this unstackable item
+                # Check if there's any overlap in x,y coordinates
+                if self._aabb_overlap_xy(temp_bounds, placed_item.bounds):
+                    return False  # There's an item above this unstackable item
+        
+        return True
+    
+    def _aabb_overlap_xy(self, bounds1: Tuple[Point3D, Point3D], bounds2: Tuple[Point3D, Point3D]) -> bool:
+        """Check if two bounding boxes overlap in X and Y dimensions (ignoring Z)"""
+        min1, max1 = bounds1
+        min2, max2 = bounds2
+        
+        return not (max1.x <= min2.x or min1.x >= max2.x or
+                   max1.y <= min2.y or min1.y >= max2.y)
     
     def _check_geometric_constraints(self, item: Item, point: Point3D, rotation: Tuple[float, float, float]) -> bool:
         """Check if item fits within truck boundaries"""
@@ -532,7 +668,9 @@ class BinPackerV3:
             "placed_items": [
                 {
                     "id": item.item.id,
+                    "priority": getattr(item.item, 'priority', 'N/A'),
                     "stackability": item.item.stackability.value,
+                    "route": getattr(item.item, 'route', 'N/A'),
                     "position": {"x": item.position.x, "y": item.position.y, "z": item.position.z},
                     "rotation": item.rotation,
                     "dimensions": {"length": item.rotation[0], "width": item.rotation[1], "height": item.rotation[2]},
@@ -540,7 +678,17 @@ class BinPackerV3:
                 }
                 for item in self.placed_items
             ],
-            "unplaced_items": [{"id": item.id, "volume": item.volume, "weight": item.weight, "stackability": item.stackability.value} for item in self.unplaced_items],
+            "unplaced_items": [
+                {
+                    "id": item.id, 
+                    "priority": getattr(item, 'priority', 'N/A'),
+                    "volume": item.volume, 
+                    "weight": item.weight, 
+                    "stackability": item.stackability.value,
+                    "route": getattr(item, 'route', 'N/A')
+                } 
+                for item in self.unplaced_items
+            ],
             "efficiency": round(efficiency, 2),
             "total_weight": total_weight,
             "truck_dimensions": self.truck_dimensions,

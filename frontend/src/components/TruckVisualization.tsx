@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text, Html } from '@react-three/drei';
+import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface TruckVisualizationProps {
@@ -143,8 +143,7 @@ const TruckContainer: React.FC<{
 const CameraController: React.FC<{ 
   truckDimensions: any;
   placedItems: any[];
-  cameraMode: string;
-}> = ({ truckDimensions, placedItems, cameraMode }) => {
+}> = ({ truckDimensions, placedItems }) => {
   const controlsRef = useRef<any>(null);
   
   useEffect(() => {
@@ -157,7 +156,7 @@ const CameraController: React.FC<{
       controlsRef.current.target.set(centerX, centerY, centerZ);
       controlsRef.current.update();
     }
-  }, [truckDimensions, placedItems, cameraMode]);
+  }, [truckDimensions, placedItems]);
 
   return (
     <OrbitControls
@@ -184,11 +183,7 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
   selectedItemId = null,
 }) => {
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
-  const [cameraMode, setCameraMode] = useState<'free' | 'top' | 'side' | 'front'>('free');
 
-  const handleCameraModeChange = (mode: 'free' | 'top' | 'side' | 'front') => {
-    setCameraMode(mode);
-  };
 
   const getCameraPosition = (): [number, number, number] => {
     const maxDim = Math.max(truckDimensions.length, truckDimensions.width, truckDimensions.height);
@@ -197,16 +192,8 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
     const centerY = truckDimensions.height / 2;
     const centerZ = truckDimensions.width / 2;
     
-    switch (cameraMode) {
-      case 'top':
-        return [centerX, centerY + distance, centerZ];
-      case 'side':
-        return [centerX + distance, centerY, centerZ];
-      case 'front':
-        return [centerX, centerY, centerZ + distance];
-      default:
-        return [centerX + distance, centerY + distance, centerZ + distance];
-    }
+    // Default camera position - slightly elevated and offset for good overview
+    return [centerX + distance, centerY + distance, centerZ + distance];
   };
 
   return (
@@ -232,7 +219,7 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
         <pointLight position={[-10, -10, -10]} intensity={0.3} />
         
         {/* Camera Controls */}
-        <CameraController truckDimensions={truckDimensions} placedItems={placedItems} cameraMode={cameraMode} />
+        <CameraController truckDimensions={truckDimensions} placedItems={placedItems} />
         
         {/* Truck Container */}
         <TruckContainer dimensions={truckDimensions} showWireframe={showWireframe} />
@@ -265,94 +252,7 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
         <axesHelper args={[Math.max(truckDimensions.length, truckDimensions.width, truckDimensions.height)]} position={[0, 0.002, 0]} />
       </Canvas>
       
-      {/* Enhanced Controls Panel */}
-      <div style={{ 
-        position: 'absolute', 
-        top: '10px', 
-        left: '10px', 
-        background: 'rgba(255, 255, 255, 0.95)', 
-        padding: '15px', 
-        borderRadius: '8px',
-        fontSize: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
-        minWidth: '200px'
-      }}>
-        <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>🎮 Controls</div>
-        <div style={{ marginBottom: '8px' }}>🖱️ Left click + drag: Rotate</div>
-        <div style={{ marginBottom: '8px' }}>🖱️ Right click + drag: Pan</div>
-        <div style={{ marginBottom: '8px' }}>🖱️ Scroll: Zoom</div>
-        
-        <div style={{ marginTop: '15px', marginBottom: '10px', fontWeight: 'bold' }}>📷 Camera Views</div>
-        <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-          {(['free', 'top', 'side', 'front'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => handleCameraModeChange(mode)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '10px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                background: cameraMode === mode ? '#007bff' : 'white',
-                color: cameraMode === mode ? 'white' : '#333',
-                cursor: 'pointer'
-              }}
-            >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div style={{ marginTop: '8px' }}>
-          <button
-            onClick={() => handleCameraModeChange('free')}
-            style={{
-              padding: '4px 8px',
-              fontSize: '10px',
-              border: '1px solid #28a745',
-              borderRadius: '4px',
-              background: '#28a745',
-              color: 'white',
-              cursor: 'pointer',
-              width: '100%'
-            }}
-          >
-            🔄 Reset View
-          </button>
-        </div>
-        
-        <div style={{ marginTop: '15px', marginBottom: '10px', fontWeight: 'bold' }}>🎨 Legend</div>
-        <div style={{ color: 'lightblue' }}>■ Truck Container</div>
-        <div style={{ color: '#ff6b6b' }}>■ Placed Items ({placedItems.length})</div>
-        {hoveredItemId !== null && (
-          <div style={{ 
-            marginTop: '8px', 
-            padding: '5px', 
-            background: '#e3f2fd', 
-            borderRadius: '4px',
-            fontSize: '11px'
-          }}>
-            Hovering: {hoveredItemId}
-          </div>
-        )}
-      </div>
-      
-      {/* Statistics Panel */}
-      <div style={{ 
-        position: 'absolute', 
-        top: '10px', 
-        right: '10px', 
-        background: 'rgba(255, 255, 255, 0.95)', 
-        padding: '15px', 
-        borderRadius: '8px',
-        fontSize: '12px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
-        minWidth: '150px'
-      }}>
-        <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>📊 Statistics</div>
-        <div>Items: {placedItems.length}</div>
-        <div>Volume: {(truckDimensions.length * truckDimensions.width * truckDimensions.height).toFixed(1)} m³</div>
-        <div>Efficiency: {placedItems.length > 0 ? 'Calculating...' : 'N/A'}</div>
-      </div>
+
     </div>
   );
 };

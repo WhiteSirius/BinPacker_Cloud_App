@@ -71,6 +71,8 @@ class ItemRequest(BaseModel):
     weight: float = Field(..., gt=0, description="Weight in kilograms")
     can_rotate: bool = Field(True, description="Whether item can be rotated")
     destination: str = Field("", description="Destination for the item")
+    route: Optional[str] = Field("", description="Route for the item")
+    priority: Optional[str] = Field("1", description="Loading priority (1, 2, 3, 4, 5)")
     is_palletized: bool = Field(False, description="Deprecated: kept for backward-compat")
     stackability: Optional[str] = Field('stackable', description="stackable | semi_stackable | unstackable")
     
@@ -108,7 +110,9 @@ class OptimizationRequest(BaseModel):
 class PlacedItemResponse(BaseModel):
     """Response model for placed items"""
     id: str
+    priority: Optional[str] = None
     stackability: Optional[str] = None
+    route: Optional[str] = None
     position: Dict[str, float]
     rotation: List[float]
     dimensions: Dict[str, float]
@@ -117,9 +121,11 @@ class PlacedItemResponse(BaseModel):
 class UnplacedItemResponse(BaseModel):
     """Response model for unplaced items"""
     id: str
+    priority: Optional[str] = None
     volume: float
     weight: float
     stackability: Optional[str] = None
+    route: Optional[str] = None
 
 class OptimizationResponse(BaseModel):
     """Main response model for packing optimization"""
@@ -190,19 +196,21 @@ async def optimize_packing(request: OptimizationRequest, background_tasks: Backg
             # Build items from PackingJobItem rows
             for pji in job.items:
                 for _ in range(max(1, pji.quantity)):
-                    algorithm_items.append(
-                        Item(
-                            id=str(pji.item_id) if pji.item_id else f"job{job.id}_item{pji.id}",
-                            length=pji.item.length_mm / 1000.0,
-                            width=pji.item.width_mm / 1000.0,
-                            height=pji.item.height_mm / 1000.0,
-                            weight=pji.item.weight_kg,
-                            can_rotate=True,
-                            destination=pji.destination or "",
-                            is_palletized=True,
-                            stackability=Stackability(pji.stackability)
-                        )
-                    )
+                                         algorithm_items.append(
+                         Item(
+                             id=str(pji.item_id) if pji.item_id else f"job{job.id}_item{pji.id}",
+                             length=pji.item.length_mm / 1000.0,
+                             width=pji.item.width_mm / 1000.0,
+                             height=pji.item.height_mm / 1000.0,
+                             weight=pji.item.weight_kg,
+                             can_rotate=True,
+                             destination=pji.destination or "",
+                             route=getattr(pji, 'route', '') or "",
+                             priority=getattr(pji, 'priority', '1') or "1",
+                             is_palletized=True,
+                             stackability=Stackability(pji.stackability)
+                         )
+                     )
             truck_dims = request.truck
             if not truck_dims:
                 # Default vehicle dims from helper (meters)
@@ -227,6 +235,8 @@ async def optimize_packing(request: OptimizationRequest, background_tasks: Backg
                         weight=item_req.weight,
                         can_rotate=item_req.can_rotate,
                         destination=item_req.destination,
+                        route=item_req.route,
+                        priority=item_req.priority,
                         is_palletized=item_req.is_palletized,
                         stackability=Stackability(item_req.stackability) if item_req.stackability else Stackability.STACKABLE,
                     )
@@ -280,7 +290,9 @@ async def optimize_packing(request: OptimizationRequest, background_tasks: Backg
             placed_items=[
                 PlacedItemResponse(
                     id=item['id'],
+                    priority=item.get('priority'),
                     stackability=item.get('stackability'),
+                    route=item.get('route'),
                     position=item['position'],
                     rotation=list(item['rotation']),
                     dimensions=item['dimensions'],
@@ -291,9 +303,11 @@ async def optimize_packing(request: OptimizationRequest, background_tasks: Backg
             unplaced_items=[
                 UnplacedItemResponse(
                     id=item['id'],
+                    priority=item.get('priority'),
                     volume=item['volume'],
                     weight=item['weight'],
-                    stackability=item.get('stackability')
+                    stackability=item.get('stackability'),
+                    route=item.get('route')
                 )
                 for item in result['unplaced_items']
             ],
