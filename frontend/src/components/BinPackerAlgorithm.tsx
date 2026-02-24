@@ -29,6 +29,8 @@ interface OptimizationResult {
   timestamp: string;
 }
 
+type StackingMode = 'unlimited_stacks' | 'stack_enforcement' | 'max_weight_stack';
+
 const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, onLogout }) => {
   const { user } = useAuth();
   const [truckDimensions, setTruckDimensions] = useState({
@@ -48,6 +50,13 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<string>('all');
+  const [stackingPolicy, setStackingPolicy] = useState<{
+    mode: StackingMode;
+    maxStacks: number;
+  }>({
+    mode: 'max_weight_stack',
+    maxStacks: 3,
+  });
 
   // Debug logging for failed items
   console.log('Current failedItems state:', failedItems);
@@ -90,7 +99,14 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
         destination: item.route || '',
         // Ensure priority is always a valid string
         priority: item.priority?.toString() || '1'
-      }))
+      })),
+      algorithm_config: {
+        stacking_mode: stackingPolicy.mode,
+        max_stack_height:
+          stackingPolicy.mode === 'stack_enforcement'
+            ? Math.max(1, Math.floor(stackingPolicy.maxStacks || 1))
+            : undefined,
+      },
     };
     console.log('🚀 Sending optimization request with data:', requestData);
     console.log('📦 Items to optimize:', itemsToOptimize.length);
@@ -560,6 +576,70 @@ const BinPackerAlgorithm: React.FC<BinPackerAlgorithmProps> = ({ onBackToHome, o
             </div>
           </div>
           <ItemForm onAddItem={addItem} />
+          <div style={{ marginTop: '16px', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', background: '#f8f9fa' }}>
+            <h3 style={{ margin: '0 0 10px 0' }}>Stacking Policy</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setStackingPolicy((prev) => ({ ...prev, mode: 'unlimited_stacks' }))}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #ccc',
+                  background: stackingPolicy.mode === 'unlimited_stacks' ? '#0d6efd' : '#fff',
+                  color: stackingPolicy.mode === 'unlimited_stacks' ? '#fff' : '#333',
+                  cursor: 'pointer',
+                }}
+              >
+                Unlimited stacks
+              </button>
+              <button
+                type="button"
+                onClick={() => setStackingPolicy((prev) => ({ ...prev, mode: 'stack_enforcement' }))}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #ccc',
+                  background: stackingPolicy.mode === 'stack_enforcement' ? '#0d6efd' : '#fff',
+                  color: stackingPolicy.mode === 'stack_enforcement' ? '#fff' : '#333',
+                  cursor: 'pointer',
+                }}
+              >
+                Stack enforcement
+              </button>
+              <button
+                type="button"
+                onClick={() => setStackingPolicy((prev) => ({ ...prev, mode: 'max_weight_stack' }))}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #ccc',
+                  background: stackingPolicy.mode === 'max_weight_stack' ? '#0d6efd' : '#fff',
+                  color: stackingPolicy.mode === 'max_weight_stack' ? '#fff' : '#333',
+                  cursor: 'pointer',
+                }}
+              >
+                Max weight stack
+              </button>
+            </div>
+            {stackingPolicy.mode === 'stack_enforcement' && (
+              <div style={{ marginTop: '10px', maxWidth: '220px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600 }}>Maximum stacks</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={stackingPolicy.maxStacks}
+                  onChange={(e) =>
+                    setStackingPolicy((prev) => ({
+                      ...prev,
+                      maxStacks: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                    }))
+                  }
+                />
+              </div>
+            )}
+          </div>
           
            {items.length > 0 && (
              <div style={{ marginTop: '20px' }}>

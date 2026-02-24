@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import logging
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +32,13 @@ class Stackability(Enum):
     STACKABLE = "stackable"            # default: can have items above and below
     SEMI_STACKABLE = "semi_stackable"  # can be placed above, but cannot have anything above it
     UNSTACKABLE = "unstackable"        # must be on floor; blocks entire width for its length
+
+
+class StackingMode(Enum):
+    """Global stack enforcement mode"""
+    UNLIMITED_STACKS = "unlimited_stacks"
+    STACK_ENFORCEMENT = "stack_enforcement"
+    MAX_WEIGHT_STACK = "max_weight_stack"
 
 class PlacementResult:
     """Result of a placement attempt"""
@@ -363,10 +370,19 @@ class SupportValidator:
 class WeightManager:
     """Manages weight distribution and stacking constraints"""
     
-    def __init__(self, max_stack_height: int = 3, max_weight_per_stack: float = 1000.0):
+    def __init__(
+        self,
+        stack_mode: str = StackingMode.MAX_WEIGHT_STACK.value,
+        max_stack_height: int = 3,
+        max_weight_per_stack: float = 1000.0
+    ):
         self.max_stack_height = max_stack_height
         self.max_weight_per_stack = max_weight_per_stack
         self.placed_items: List[PlacedItem] = []
+        try:
+            self.stack_mode = StackingMode(stack_mode)
+        except ValueError:
+            self.stack_mode = StackingMode.MAX_WEIGHT_STACK
     
     def add_placed_item(self, placed_item: PlacedItem):
         """Add a placed item for weight management"""
@@ -374,15 +390,13 @@ class WeightManager:
     
     def validate_placement(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
         """Validate weight constraints for item placement"""
-        # Check stacking height
-        if not self._check_stack_height(position):
-            return False
-        
-        # Check weight limits
-        if not self._check_weight_limits(item, position):
-            return False
-        
-        return True
+        if self.stack_mode == StackingMode.UNLIMITED_STACKS:
+            return True
+
+        if self.stack_mode == StackingMode.STACK_ENFORCEMENT:
+            return self._check_stack_height(position)
+
+        return self._check_weight_capacity(item, position, rotation)
     
     def _check_stack_height(self, position: Point3D) -> bool:
         """Check if placement would exceed maximum stack height"""
@@ -397,24 +411,125 @@ class WeightManager:
                 stack_height += 1
         
         return stack_height < self.max_stack_height
-    
-    def _check_weight_limits(self, item: Item, position: Point3D) -> bool:
-        """Check if placement would exceed weight limits"""
-        # Calculate total weight in the stack
-        total_weight = item.weight
+
+    def _check_weight_capacity(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check if all supporting items can carry the distributed load."""
+        if position.z == 0:
+            return True
+
+        support_distribution = self._get_support_distribution(position, rotation)
+        if not support_distribution:
+            return False
+
+        # Current accumulated loads from existing placements (load from above only).
+        base_loads = self._build_existing_load_map()
+        additional_loads = defaultdict(float)
+        queue = deque((support_item, item.weight * fraction) for support_item, fraction in support_distribution)
+
+        # Propagate the new item's load down the support chain.
+        while queue:
+            support_item, added_load = queue.popleft()
+            if added_load <= 0:
+                continue
+
+            support_key = id(support_item)
+            additional_loads[support_key] += added_load
+            projected_load = base_loads.get(support_key, 0.0) + additional_loads[support_key]
+            support_capacity = support_item.item.weight
+
+            if projected_load > support_capacity + 1e-9:
+                return False
+
+            lower_supports = self._get_support_distribution(
+                support_item.position,
+                support_item.rotation,
+                exclude_item=support_item
+            )
+            for lower_item, lower_fraction in lower_supports:
+                queue.append((lower_item, added_load * lower_fraction))
+
+        return True
+
+    def _build_existing_load_map(self) -> Dict[int, float]:
+        """Build current carried load map (how much each item already carries from above)."""
+        load_map: Dict[int, float] = defaultdict(float)
+
+        # Top-down traversal ensures inherited loads are propagated correctly.
+        for placed_item in sorted(self.placed_items, key=lambda p: p.position.z, reverse=True):
+            inherited_load = load_map.get(id(placed_item), 0.0)
+            total_transmitted = placed_item.item.weight + inherited_load
+            support_distribution = self._get_support_distribution(
+                placed_item.position,
+                placed_item.rotation,
+                exclude_item=placed_item
+            )
+            for support_item, fraction in support_distribution:
+                load_map[id(support_item)] += total_transmitted * fraction
+
+        return load_map
+
+    def _get_support_distribution(
+        self,
+        position: Point3D,
+        rotation: Tuple[float, float, float],
+        exclude_item: Optional[PlacedItem] = None
+    ) -> List[Tuple[PlacedItem, float]]:
+        """
+        Compute support distribution for a footprint at `position`/`rotation`.
+
+        Returns list of (support_item, fraction) where fraction is overlap area ratio.
+        """
+        base_z = position.z
+        if math.isclose(base_z, 0.0, abs_tol=1e-9):
+            return []
+
+        footprint_min_x = position.x
+        footprint_max_x = position.x + rotation[0]
+        footprint_min_y = position.y
+        footprint_max_y = position.y + rotation[1]
+
+        supports_with_area: List[Tuple[PlacedItem, float]] = []
+        total_overlap_area = 0.0
+
         for placed_item in self.placed_items:
-            if (placed_item.position.x == position.x and 
-                placed_item.position.y == position.y):
-                total_weight += placed_item.item.weight
-        
-        return total_weight <= self.max_weight_per_stack
+            if exclude_item is not None and placed_item is exclude_item:
+                continue
+
+            top_z = placed_item.position.z + placed_item.rotation[2]
+            if not math.isclose(top_z, base_z, abs_tol=1e-6):
+                continue
+
+            support_min_x = placed_item.position.x
+            support_max_x = support_min_x + placed_item.rotation[0]
+            support_min_y = placed_item.position.y
+            support_max_y = support_min_y + placed_item.rotation[1]
+
+            x_overlap = max(0.0, min(footprint_max_x, support_max_x) - max(footprint_min_x, support_min_x))
+            y_overlap = max(0.0, min(footprint_max_y, support_max_y) - max(footprint_min_y, support_min_y))
+            overlap_area = x_overlap * y_overlap
+
+            if overlap_area > 0:
+                supports_with_area.append((placed_item, overlap_area))
+                total_overlap_area += overlap_area
+
+        if total_overlap_area <= 0:
+            return []
+
+        return [(placed_item, overlap_area / total_overlap_area) for placed_item, overlap_area in supports_with_area]
 
 class BinPackerV3:
     """
     Clean implementation of the improved collision points algorithm
     """
     
-    def __init__(self, truck_length: float, truck_width: float, truck_height: float):
+    def __init__(
+        self,
+        truck_length: float,
+        truck_width: float,
+        truck_height: float,
+        stacking_mode: str = StackingMode.MAX_WEIGHT_STACK.value,
+        max_stack_height: int = 3
+    ):
         self.truck_dimensions = (truck_length, truck_width, truck_height)
         self.placed_items: List[PlacedItem] = []
         self.unplaced_items: List[Item] = []
@@ -423,12 +538,19 @@ class BinPackerV3:
         self.point_manager = PointManager(self.truck_dimensions)
         self.collision_detector = CollisionDetector()
         self.support_validator = SupportValidator()
-        self.weight_manager = WeightManager()
+        self.weight_manager = WeightManager(
+            stack_mode=stacking_mode,
+            max_stack_height=max_stack_height
+        )
         
         # Initialize with starting point
         self.point_manager.add_point(Point3D(0, 0, 0), priority=0)
         
-        logger.info(f"Initialized BinPackerV3 with truck dimensions: {self.truck_dimensions}")
+        logger.info(
+            f"Initialized BinPackerV3 with truck dimensions: {self.truck_dimensions}, "
+            f"stack_mode={self.weight_manager.stack_mode.value}, "
+            f"max_stack_height={self.weight_manager.max_stack_height}"
+        )
     
     def pack_items(self, items: List[Item]) -> Dict[str, Any]:
         """

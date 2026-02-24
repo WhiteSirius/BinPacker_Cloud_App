@@ -242,12 +242,26 @@ async def optimize_packing(request: OptimizationRequest, background_tasks: Backg
                     )
                 )
             truck_dims = request.truck
-        
+        algorithm_config = request.algorithm_config or {}
+        stacking_mode = str(algorithm_config.get("stacking_mode", "max_weight_stack")).strip().lower()
+        if stacking_mode not in {"unlimited_stacks", "stack_enforcement", "max_weight_stack"}:
+            stacking_mode = "max_weight_stack"
+
+        max_stack_height_raw = algorithm_config.get("max_stack_height", 3)
+        try:
+            max_stack_height = max(1, int(max_stack_height_raw))
+        except (TypeError, ValueError):
+            max_stack_height = 3
+
+        logger.info(f"Stacking mode: {stacking_mode}, max_stack_height: {max_stack_height}")
+
         # Initialize the bin packer
         packer = BinPackerV3(
             truck_length=truck_dims.length,
             truck_width=truck_dims.width,
             truck_height=truck_dims.height,
+            stacking_mode=stacking_mode,
+            max_stack_height=max_stack_height,
         )
         
         # Run the optimization algorithm
