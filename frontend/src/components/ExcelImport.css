@@ -1,0 +1,498 @@
+.excel-import-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+}
+
+.excel-import-modal {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalSlideIn 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes modalSlideIn {
+  from { transform: translateY(-50px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid #eee;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: white;
+  font-size: 1.5rem;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: white;
+  padding: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.modal-content {
+  padding: 24px;
+}
+
+.step-1, .step-2 {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.step-1 h3, .step-2 h3 {
+  color: #333;
+  margin-bottom: 16px;
+  font-size: 1.3rem;
+}
+
+.step-1 p, .step-2 p {
+  color: #666;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.file-upload-area {
+  text-align: center;
+  padding: 40px;
+  border: 2px dashed #ddd;
+  border-radius: 12px;
+  margin: 20px 0;
+  transition: all 0.3s ease;
+  background: #f8f9fa;
+}
+
+.file-upload-area:hover {
+  border-color: #667eea;
+  background: #f0f2ff;
+  transform: translateY(-2px);
+}
+
+.upload-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 16px 32px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.upload-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.selected-file {
+  margin-top: 20px;
+  padding: 12px;
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
+  color: #155724;
+}
+
+.selected-file span {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.selected-file small {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.file-requirements {
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.file-requirements h4 {
+  margin: 0 0 12px 0;
+  color: #1976d2;
+}
+
+.file-requirements ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #424242;
+}
+
+.file-requirements li {
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.column-mapping {
+  margin: 24px 0;
+}
+
+.column-mapping h4 {
+  margin: 20px 0 12px 0;
+  color: #333;
+  font-size: 1.1rem;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.mapping-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s ease;
+}
+
+.mapping-row:hover {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px 12px;
+  margin: 0 -12px;
+}
+
+.field-label {
+  font-weight: 500;
+  color: #333;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-label.required::after {
+  content: ' *';
+  color: #dc3545;
+  font-weight: bold;
+}
+
+.mapping-row select {
+  padding: 10px 12px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  min-width: 220px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.mapping-row select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.mapping-row select.mapped {
+  border-color: #28a745;
+  background: #f8fff9;
+}
+
+.exclude-rows {
+  margin: 24px 0;
+  padding: 20px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+}
+
+.exclude-rows label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #856404;
+}
+
+.exclude-rows input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.exclude-rows small {
+  display: block;
+  margin-top: 6px;
+  color: #856404;
+  font-size: 0.85rem;
+}
+
+.preview-section {
+  margin: 24px 0;
+}
+
+.preview-section h4 {
+  margin-bottom: 16px;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.preview-table {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 120px;
+  overflow-x: auto;
+}
+
+.preview-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.preview-table th,
+.preview-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.preview-table th {
+  background: #e9ecef;
+  font-weight: 600;
+  color: #495057;
+  position: sticky;
+  top: 0;
+}
+
+.preview-table tr:hover {
+  background: #f8f9fa;
+}
+
+.preview-table p {
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+  margin: 40px 0;
+}
+
+.mapping-verification h5 {
+  margin: 16px 0 8px 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mapped-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.mapped-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #e8f5e8;
+  border: 1px solid #c3e6cb;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.field-name {
+  font-weight: 600;
+  color: #155724;
+  min-width: 80px;
+}
+
+.arrow {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.column-name {
+  color: #155724;
+  font-weight: 500;
+}
+
+.available-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.column-badge {
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.column-badge.mapped {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.column-badge.unmapped {
+  background: #f8f9fa;
+  color: #6c757d;
+  border: 1px solid #dee2e6;
+}
+
+.error-message {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid #f5c6cb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #eee;
+}
+
+.btn-secondary, .btn-primary {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .excel-import-modal {
+    width: 95%;
+    margin: 10px;
+  }
+  
+  .modal-header {
+    padding: 20px;
+  }
+  
+  .modal-content {
+    padding: 20px;
+  }
+  
+  .mapping-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .field-label {
+    min-width: auto;
+  }
+  
+  .mapping-row select {
+    min-width: 100%;
+  }
+  
+  .modal-actions {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .btn-secondary, .btn-primary {
+    width: 100%;
+  }
+}
+
+/* Scrollbar Styling */
+.excel-import-modal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.excel-import-modal::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.excel-import-modal::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.excel-import-modal::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+} 

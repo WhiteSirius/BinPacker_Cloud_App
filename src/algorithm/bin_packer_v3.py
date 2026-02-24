@@ -1,0 +1,849 @@
+"""
+Bin Packer V3 - Clean Implementation of Improved Collision Points Algorithm
+
+This module implements a refined version of the collision points algorithm
+with clear logic flow, modular design, and comprehensive constraint handling.
+
+Based on the Algorithm Improved Logic Analysis document.
+"""
+
+from typing import List, Optional, Tuple, Dict, Any
+from dataclasses import dataclass, field
+from enum import Enum
+import logging
+import math
+from collections import defaultdict, deque
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class ConstraintType(Enum):
+    """Types of constraints that can be violated"""
+    GEOMETRIC = "geometric"
+    COLLISION = "collision"
+    SUPPORT = "support"
+    WEIGHT = "weight"
+    ROTATION = "rotation"
+
+
+class Stackability(Enum):
+    """Stacking behavior of an item"""
+    STACKABLE = "stackable"            # default: can have items above and below
+    SEMI_STACKABLE = "semi_stackable"  # can be placed above, but cannot have anything above it
+    UNSTACKABLE = "unstackable"        # must be on floor; blocks entire width for its length
+
+
+class StackingMode(Enum):
+    """Global stack enforcement mode"""
+    UNLIMITED_STACKS = "unlimited_stacks"
+    STACK_ENFORCEMENT = "stack_enforcement"
+    MAX_WEIGHT_STACK = "max_weight_stack"
+
+class PlacementResult:
+    """Result of a placement attempt"""
+    def __init__(self, success: bool, reason: str = "", placed_item: Optional['PlacedItem'] = None):
+        self.success = success
+        self.reason = reason
+        self.placed_item = placed_item
+
+@dataclass
+class Point3D:
+    """3D point representation"""
+    x: float
+    y: float
+    z: float
+    
+    def __hash__(self):
+        return hash((round(self.x, 3), round(self.y, 3), round(self.z, 3)))
+    
+    def __eq__(self, other):
+        if not isinstance(other, Point3D):
+            return False
+        return (round(self.x, 3) == round(other.x, 3) and 
+                round(self.y, 3) == round(other.y, 3) and 
+                round(self.z, 3) == round(other.z, 3))
+
+@dataclass
+class Item:
+    """Represents an item to be packed"""
+    id: str
+    length: float
+    width: float
+    height: float
+    weight: float
+    can_rotate: bool = True
+    destination: str = ""
+    route: str = ""
+    priority: str = "1"
+    is_palletized: bool = False  # kept for backward-compat; ignored by rotation logic
+    stackability: Stackability = Stackability.STACKABLE
+    
+    @property
+    def volume(self) -> float:
+        return self.length * self.width * self.height
+    
+    @property
+    def base_area(self) -> float:
+        return self.length * self.width
+    
+    def get_rotations(self) -> List[Tuple[float, float, float]]:
+        """Return limited rotations for palletized-like items: swap length/width only.
+
+        We assume cargo is on pallets, so height orientation remains fixed. Two options:
+        - (length, width, height)
+        - (width, length, height)
+        """
+        return [
+            (self.length, self.width, self.height),
+            (self.width, self.length, self.height),
+        ]
+
+@dataclass
+class PlacedItem:
+    """Represents an item that has been placed in the truck"""
+    item: Item
+    position: Point3D
+    rotation: Tuple[float, float, float] = field(default_factory=lambda: (0, 0, 0))
+    
+    @property
+    def bounds(self) -> Tuple[Point3D, Point3D]:
+        """Get the bounding box of the placed item"""
+        min_point = self.position
+        max_point = Point3D(
+            self.position.x + self.rotation[0],
+            self.position.y + self.rotation[1],
+            self.position.z + self.rotation[2]
+        )
+        return (min_point, max_point)
+    
+    def get_corner_points(self) -> List[Point3D]:
+        """Get the 8 corner points of the placed item"""
+        l, w, h = self.rotation
+        corners = [
+            Point3D(self.position.x, self.position.y, self.position.z),                    # Bottom-front-left
+            Point3D(self.position.x + l, self.position.y, self.position.z),                # Bottom-front-right
+            Point3D(self.position.x, self.position.y + w, self.position.z),                # Bottom-back-left
+            Point3D(self.position.x + l, self.position.y + w, self.position.z),            # Bottom-back-right
+            Point3D(self.position.x, self.position.y, self.position.z + h),                # Top-front-left
+            Point3D(self.position.x + l, self.position.y, self.position.z + h),            # Top-front-right
+            Point3D(self.position.x, self.position.y + w, self.position.z + h),            # Top-back-left
+            Point3D(self.position.x + l, self.position.y + w, self.position.z + h),        # Top-back-right
+        ]
+        return corners
+    
+    @property
+    def volume(self) -> float:
+        """Get the volume of the placed item (after rotation)"""
+        l, w, h = self.rotation
+        return l * w * h
+
+class PointManager:
+    """Manages available placement points with spatial awareness"""
+    
+    def __init__(self, truck_dimensions: Tuple[float, float, float] = None):
+        self.available_points: List[Point3D] = []
+        self.used_points: List[Point3D] = []
+        self.blocked_points: List[Point3D] = []
+        self.point_priorities: Dict[Point3D, int] = {}
+        self.truck_dimensions = truck_dimensions or (13.62, 2.48, 2.7)  # Default EU truck dimensions
+    
+    def add_point(self, point: Point3D, priority: int = 0):
+        """Add a new available point"""
+        if point not in self.available_points and point not in self.used_points:
+            self.available_points.append(point)
+            self.point_priorities[point] = priority
+    
+    def get_next_point(self) -> Optional[Point3D]:
+        """Get the next point with highest priority"""
+        if not self.available_points:
+            return None
+        
+        # Sort by spatial scan order: within a fixed x-plane, sweep width (y) across each height (z),
+        # and only after exhausting (y,z) move forward along length (x).
+        # Final tiebreaker by explicit priority (lower number = earlier).
+        self.available_points.sort(
+            key=lambda p: (
+                round(p.x, 6),   # length axis last to advance
+                round(p.z, 6),   # height axis second
+                round(p.y, 6),   # width axis first within each (x,z)
+                self.point_priorities.get(p, 999)
+            )
+        )
+        return self.available_points[0]
+    
+    def mark_point_used(self, point: Point3D):
+        """Mark a point as used"""
+        if point in self.available_points:
+            self.available_points.remove(point)
+        self.used_points.append(point)
+    
+    def mark_point_blocked(self, point: Point3D):
+        """Mark a point as blocked"""
+        if point in self.available_points:
+            self.available_points.remove(point)
+        self.blocked_points.append(point)
+    
+    def generate_new_points(self, placed_item: PlacedItem) -> List[Point3D]:
+        """Generate new candidate points considering stackability rules.
+
+        Baseline candidates:
+          - Next width point:  (x, y + w, z)
+          - Next height point: (x, y, z + h)
+          - Next length point: (x + l, y, z)
+
+        Modifications:
+          - SEMI_STACKABLE: do not generate top point (no items above this one)
+          - UNSTACKABLE: do not generate top point; also block entire width alongside this item's length span
+        """
+        x, y, z = placed_item.position.x, placed_item.position.y, placed_item.position.z
+        l, w, h = placed_item.rotation
+
+        candidates: List[Point3D] = [
+            Point3D(x, y + w, z),  # advance along width first
+            Point3D(x + l, y, z),  # then length
+        ]
+
+        # Only stackable items generate the top surface point
+        if placed_item.item.stackability == Stackability.STACKABLE:
+            candidates.insert(1, Point3D(x, y, z + h))  # between width and length per sweep order
+
+        # For UNSTACKABLE items: block the entire width of the truck for their length span
+        if placed_item.item.stackability == Stackability.UNSTACKABLE:
+            self._block_width_for_unstackable(placed_item)
+
+        new_points: List[Point3D] = []
+        for point in candidates:
+            if point not in self.available_points and point not in self.used_points and point not in self.blocked_points:
+                new_points.append(point)
+            else:
+                logger.info(f"Point {point} was filtered out: available={point in self.available_points}, used={point in self.used_points}, blocked={point in self.blocked_points}")
+
+        logger.info(f"Generated {len(new_points)} new points for item {placed_item.item.id} ({placed_item.item.stackability.value}): {new_points}")
+        return new_points
+
+    def _block_width_for_unstackable(self, placed_item: PlacedItem):
+        """Block the entire width of the truck for unstackable items along their length span"""
+        x, y, z = placed_item.position.x, placed_item.position.y, placed_item.position.z
+        l, w, h = placed_item.rotation
+        
+        # Get truck width from truck dimensions
+        truck_length, truck_width, truck_height = self.truck_dimensions
+        
+        # Block the entire width of the truck for the length span of this unstackable item
+        # This prevents any items from being placed beside the unstackable item
+        # We block from the item's x position to x + length, and from y to truck_width
+        # BUT we do NOT block the point at (x + l, y, z) - that's for items behind the unstackable item
+        
+        # Use floating point precision to avoid blocking the point after the item
+        step = 0.1  # Small step for precision
+        x_start = x
+        x_end = x + l - step  # Don't block the exact point after the item
+        
+        current_x = x_start
+        while current_x <= x_end:
+            current_y = y
+            while current_y <= truck_width:
+                blocked_point = Point3D(current_x, current_y, z)
+                if (blocked_point not in self.available_points and 
+                    blocked_point not in self.used_points and 
+                    blocked_point not in self.blocked_points):
+                    self.blocked_points.append(blocked_point)
+                current_y += step
+            current_x += step
+        
+        logger.info(f"Blocked width for unstackable item {placed_item.item.id} from x={x} to x={x+l-0.01}, y={y} to y={truck_width}")
+
+class CollisionDetector:
+    """Advanced collision detection with spatial indexing"""
+    
+    def __init__(self):
+        self.placed_items: List[PlacedItem] = []
+        self.collision_cache: Dict[str, bool] = {}
+    
+    def add_placed_item(self, placed_item: PlacedItem):
+        """Add a placed item to collision detection"""
+        self.placed_items.append(placed_item)
+        self.collision_cache.clear()  # Clear cache when new item is added
+    
+    def check_collision(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check if placing an item would cause a collision"""
+        cache_key = f"{item.id}_{position.x}_{position.y}_{position.z}_{rotation}"
+        
+        if cache_key in self.collision_cache:
+            return self.collision_cache[cache_key]
+        
+        # Create temporary placed item for collision checking
+        temp_placed = PlacedItem(item, position, rotation)
+        temp_bounds = temp_placed.bounds
+        
+        # Check collision with all placed items
+        for placed_item in self.placed_items:
+            if self._aabb_collision(temp_bounds, placed_item.bounds):
+                self.collision_cache[cache_key] = True
+                return True
+        
+        self.collision_cache[cache_key] = False
+        return False
+    
+    def _aabb_collision(self, bounds1: Tuple[Point3D, Point3D], bounds2: Tuple[Point3D, Point3D]) -> bool:
+        """Axis-Aligned Bounding Box collision detection"""
+        min1, max1 = bounds1
+        min2, max2 = bounds2
+        
+        return not (max1.x <= min2.x or min1.x >= max2.x or
+                   max1.y <= min2.y or min1.y >= max2.y or
+                   max1.z <= min2.z or min1.z >= max2.z)
+
+class SupportValidator:
+    """Validates 100% support requirement with geometric precision"""
+    
+    def __init__(self):
+        self.placed_items: List[PlacedItem] = []
+    
+    def add_placed_item(self, placed_item: PlacedItem):
+        """Add a placed item for support validation"""
+        self.placed_items.append(placed_item)
+    
+    def validate_support(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check if item has 100% support at placement point"""
+        if position.z == 0:
+            return True  # Items on the floor have 100% support
+        
+        # Get support surface at item's base height
+        support_surface = self._get_support_surface(position.z)
+        
+        if not support_surface:
+            return False
+        
+        # Calculate support percentage
+        # Semi-stackable and unstackable cannot have anything above them.
+        # Validation for support is for the current item; blocking above is handled separately.
+        support_percentage = self._calculate_support_percentage(item, position, rotation, support_surface)
+        return support_percentage >= 100.0
+    
+    def _get_support_surface(self, height: float) -> List[Tuple[Point3D, Point3D]]:
+        """Get all support surfaces at a given height"""
+        support_surfaces = []
+        
+        for placed_item in self.placed_items:
+            if placed_item.position.z + placed_item.rotation[2] == height:
+                # This item provides support at the given height
+                min_point = placed_item.position
+                max_point = Point3D(
+                    min_point.x + placed_item.rotation[0],
+                    min_point.y + placed_item.rotation[1],
+                    min_point.z + placed_item.rotation[2]
+                )
+                support_surfaces.append((min_point, max_point))
+        
+        return support_surfaces
+    
+    def _calculate_support_percentage(self, item: Item, position: Point3D, rotation: Tuple[float, float, float], 
+                                    support_surfaces: List[Tuple[Point3D, Point3D]]) -> float:
+        """Calculate exact percentage of item supported"""
+        item_base_area = rotation[0] * rotation[1]  # length * width
+        supported_area = 0.0
+        
+        # Calculate intersection area with each support surface
+        for support_min, support_max in support_surfaces:
+            intersection_area = self._calculate_intersection_area(
+                (position, Point3D(position.x + rotation[0], position.y + rotation[1], position.z)),
+                (support_min, support_max)
+            )
+            supported_area += intersection_area
+        
+        return (supported_area / item_base_area) * 100.0 if item_base_area > 0 else 0.0
+    
+    def _calculate_intersection_area(self, item_bounds: Tuple[Point3D, Point3D], 
+                                   support_bounds: Tuple[Point3D, Point3D]) -> float:
+        """Calculate intersection area between two rectangles"""
+        item_min, item_max = item_bounds
+        support_min, support_max = support_bounds
+        
+        # Calculate intersection in X and Y dimensions
+        x_overlap = max(0, min(item_max.x, support_max.x) - max(item_min.x, support_min.x))
+        y_overlap = max(0, min(item_max.y, support_max.y) - max(item_min.y, support_min.y))
+        
+        return x_overlap * y_overlap
+
+class WeightManager:
+    """Manages weight distribution and stacking constraints"""
+    
+    def __init__(
+        self,
+        stack_mode: str = StackingMode.MAX_WEIGHT_STACK.value,
+        max_stack_height: int = 3,
+        max_weight_per_stack: float = 1000.0
+    ):
+        self.max_stack_height = max_stack_height
+        self.max_weight_per_stack = max_weight_per_stack
+        self.placed_items: List[PlacedItem] = []
+        try:
+            self.stack_mode = StackingMode(stack_mode)
+        except ValueError:
+            self.stack_mode = StackingMode.MAX_WEIGHT_STACK
+    
+    def add_placed_item(self, placed_item: PlacedItem):
+        """Add a placed item for weight management"""
+        self.placed_items.append(placed_item)
+    
+    def validate_placement(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Validate weight constraints for item placement"""
+        if self.stack_mode == StackingMode.UNLIMITED_STACKS:
+            return True
+
+        if self.stack_mode == StackingMode.STACK_ENFORCEMENT:
+            return self._check_stack_height(position)
+
+        return self._check_weight_capacity(item, position, rotation)
+    
+    def _check_stack_height(self, position: Point3D) -> bool:
+        """Check if placement would exceed maximum stack height"""
+        if position.z == 0:
+            return True
+        
+        # Count items in the stack at this position
+        stack_height = 0
+        for placed_item in self.placed_items:
+            if (placed_item.position.x == position.x and 
+                placed_item.position.y == position.y):
+                stack_height += 1
+        
+        return stack_height < self.max_stack_height
+
+    def _check_weight_capacity(self, item: Item, position: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check if all supporting items can carry the distributed load."""
+        if position.z == 0:
+            return True
+
+        support_distribution = self._get_support_distribution(position, rotation)
+        if not support_distribution:
+            return False
+
+        # Current accumulated loads from existing placements (load from above only).
+        base_loads = self._build_existing_load_map()
+        additional_loads = defaultdict(float)
+        queue = deque((support_item, item.weight * fraction) for support_item, fraction in support_distribution)
+
+        # Propagate the new item's load down the support chain.
+        while queue:
+            support_item, added_load = queue.popleft()
+            if added_load <= 0:
+                continue
+
+            support_key = id(support_item)
+            additional_loads[support_key] += added_load
+            projected_load = base_loads.get(support_key, 0.0) + additional_loads[support_key]
+            support_capacity = support_item.item.weight
+
+            if projected_load > support_capacity + 1e-9:
+                return False
+
+            lower_supports = self._get_support_distribution(
+                support_item.position,
+                support_item.rotation,
+                exclude_item=support_item
+            )
+            for lower_item, lower_fraction in lower_supports:
+                queue.append((lower_item, added_load * lower_fraction))
+
+        return True
+
+    def _build_existing_load_map(self) -> Dict[int, float]:
+        """Build current carried load map (how much each item already carries from above)."""
+        load_map: Dict[int, float] = defaultdict(float)
+
+        # Top-down traversal ensures inherited loads are propagated correctly.
+        for placed_item in sorted(self.placed_items, key=lambda p: p.position.z, reverse=True):
+            inherited_load = load_map.get(id(placed_item), 0.0)
+            total_transmitted = placed_item.item.weight + inherited_load
+            support_distribution = self._get_support_distribution(
+                placed_item.position,
+                placed_item.rotation,
+                exclude_item=placed_item
+            )
+            for support_item, fraction in support_distribution:
+                load_map[id(support_item)] += total_transmitted * fraction
+
+        return load_map
+
+    def _get_support_distribution(
+        self,
+        position: Point3D,
+        rotation: Tuple[float, float, float],
+        exclude_item: Optional[PlacedItem] = None
+    ) -> List[Tuple[PlacedItem, float]]:
+        """
+        Compute support distribution for a footprint at `position`/`rotation`.
+
+        Returns list of (support_item, fraction) where fraction is overlap area ratio.
+        """
+        base_z = position.z
+        if math.isclose(base_z, 0.0, abs_tol=1e-9):
+            return []
+
+        footprint_min_x = position.x
+        footprint_max_x = position.x + rotation[0]
+        footprint_min_y = position.y
+        footprint_max_y = position.y + rotation[1]
+
+        supports_with_area: List[Tuple[PlacedItem, float]] = []
+        total_overlap_area = 0.0
+
+        for placed_item in self.placed_items:
+            if exclude_item is not None and placed_item is exclude_item:
+                continue
+
+            top_z = placed_item.position.z + placed_item.rotation[2]
+            if not math.isclose(top_z, base_z, abs_tol=1e-6):
+                continue
+
+            support_min_x = placed_item.position.x
+            support_max_x = support_min_x + placed_item.rotation[0]
+            support_min_y = placed_item.position.y
+            support_max_y = support_min_y + placed_item.rotation[1]
+
+            x_overlap = max(0.0, min(footprint_max_x, support_max_x) - max(footprint_min_x, support_min_x))
+            y_overlap = max(0.0, min(footprint_max_y, support_max_y) - max(footprint_min_y, support_min_y))
+            overlap_area = x_overlap * y_overlap
+
+            if overlap_area > 0:
+                supports_with_area.append((placed_item, overlap_area))
+                total_overlap_area += overlap_area
+
+        if total_overlap_area <= 0:
+            return []
+
+        return [(placed_item, overlap_area / total_overlap_area) for placed_item, overlap_area in supports_with_area]
+
+class BinPackerV3:
+    """
+    Clean implementation of the improved collision points algorithm
+    """
+    
+    def __init__(
+        self,
+        truck_length: float,
+        truck_width: float,
+        truck_height: float,
+        stacking_mode: str = StackingMode.MAX_WEIGHT_STACK.value,
+        max_stack_height: int = 3
+    ):
+        self.truck_dimensions = (truck_length, truck_width, truck_height)
+        self.placed_items: List[PlacedItem] = []
+        self.unplaced_items: List[Item] = []
+        
+        # Initialize managers
+        self.point_manager = PointManager(self.truck_dimensions)
+        self.collision_detector = CollisionDetector()
+        self.support_validator = SupportValidator()
+        self.weight_manager = WeightManager(
+            stack_mode=stacking_mode,
+            max_stack_height=max_stack_height
+        )
+        
+        # Initialize with starting point
+        self.point_manager.add_point(Point3D(0, 0, 0), priority=0)
+        
+        logger.info(
+            f"Initialized BinPackerV3 with truck dimensions: {self.truck_dimensions}, "
+            f"stack_mode={self.weight_manager.stack_mode.value}, "
+            f"max_stack_height={self.weight_manager.max_stack_height}"
+        )
+    
+    def pack_items(self, items: List[Item]) -> Dict[str, Any]:
+        """
+        Main packing algorithm with priority-based grouping
+        """
+        logger.info(f"Starting packing algorithm with {len(items)} items")
+        
+        # Group items by priority
+        priority_groups = self._group_items_by_priority(items)
+        self.unplaced_items = []
+        
+        # Log priority groups
+        logger.info("Priority groups created:")
+        for priority in sorted(priority_groups.keys()):
+            logger.info(f"  Priority {priority}: {len(priority_groups[priority])} items")
+        
+        # Process each priority group sequentially
+        for priority in sorted(priority_groups.keys()):
+            priority_items = priority_groups[priority]
+            logger.info(f"Processing Priority {priority} group with {len(priority_items)} items")
+            
+            # Add items from this priority group to unplaced items
+            self.unplaced_items.extend(priority_items)
+            
+            # Process all items in this priority group
+            while self.point_manager.available_points and self.unplaced_items:
+                current_point = self.point_manager.get_next_point()
+                if not current_point:
+                    break
+                
+                logger.info(f"Trying to place item at point {current_point}. Available points: {len(self.point_manager.available_points)}")
+                
+                placed_item = self._try_place_item_at_point(current_point)
+                
+                if placed_item:
+                    self._handle_successful_placement(placed_item, current_point)
+                    logger.info(f"Successfully placed Priority {priority} item {placed_item.item.id} at {current_point}")
+                else:
+                    self._handle_failed_placement(current_point)
+                    logger.info(f"Failed to place any Priority {priority} item at {current_point}")
+            
+            # If we still have unplaced items from this priority group, they remain unplaced
+            # and we move to the next priority group
+            logger.info(f"Priority {priority} group complete. {len(self.unplaced_items)} items remain unplaced")
+        
+        # Generate results
+        return self._generate_packing_result()
+    
+    def _group_items_by_priority(self, items: List[Item]) -> Dict[int, List[Item]]:
+        """Group items by priority and sort within each group"""
+        priority_groups = {}
+        
+        for item in items:
+            # Get priority value
+            try:
+                priority = int(item.priority) if hasattr(item, 'priority') and item.priority else 999
+            except (ValueError, TypeError):
+                priority = 999
+            
+            if priority not in priority_groups:
+                priority_groups[priority] = []
+            priority_groups[priority].append(item)
+        
+        # Sort items within each priority group
+        stack_rank = {
+            Stackability.UNSTACKABLE: 0,
+            Stackability.STACKABLE: 1,
+            Stackability.SEMI_STACKABLE: 2,
+        }
+        
+        for priority in priority_groups:
+            priority_groups[priority] = sorted(
+                priority_groups[priority],
+                key=lambda x: (
+                    stack_rank.get(x.stackability, 2),  # Primary: stackability
+                    -x.volume,  # Secondary: volume (descending)
+                    -x.weight   # Tertiary: weight (descending)
+                )
+            )
+        
+        return priority_groups
+
+    def _sort_items_by_priority(self, items: List[Item]) -> List[Item]:
+        """Sort items by loading priority order.
+
+        Priority order:
+          1) Numeric priority (1, 2, 3, 4, 5) - Priority 1 loads first (unloads last)
+          2) Within each priority group: by stackability (Unstackable > Stackable > Semi-stackable)
+          3) Within each stackability group: by volume desc, then weight desc
+        """
+        # Convert priority to integer for proper sorting (1, 2, 3, 4, 5)
+        def get_priority_value(item):
+            try:
+                return int(item.priority) if hasattr(item, 'priority') and item.priority else 999
+            except (ValueError, TypeError):
+                return 999
+        
+        stack_rank = {
+            Stackability.UNSTACKABLE: 0,
+            Stackability.STACKABLE: 1,
+            Stackability.SEMI_STACKABLE: 2,
+        }
+        
+        return sorted(
+            items,
+            key=lambda x: (
+                get_priority_value(x),  # Primary: numeric priority (1, 2, 3...)
+                stack_rank.get(x.stackability, 2),  # Secondary: stackability
+                -x.volume,  # Tertiary: volume (descending)
+                -x.weight   # Quaternary: weight (descending)
+            )
+        )
+    
+    def _try_place_item_at_point(self, point: Point3D) -> Optional[PlacedItem]:
+        """Try to place an item at a specific point"""
+        for item in self.unplaced_items:
+            # Get valid rotations for the item
+            rotations = item.get_rotations()
+            
+            for rotation in rotations:
+                # Try placement with this rotation
+                placement_result = self._attempt_placement(item, point, rotation)
+                
+                if placement_result.success:
+                    return placement_result.placed_item
+        
+        return None
+    
+    def _attempt_placement(self, item: Item, point: Point3D, rotation: Tuple[float, float, float]) -> PlacementResult:
+        """Attempt to place an item with specific rotation"""
+        # Enforce unstackable: must be placed on the floor
+        if item.stackability == Stackability.UNSTACKABLE and point.z != 0:
+            return PlacementResult(success=False, reason="unstackable_must_be_floor")
+
+        # Check geometric constraints
+        if not self._check_geometric_constraints(item, point, rotation):
+            return PlacementResult(success=False, reason="geometric_violation")
+        
+        # Check collision constraints
+        if self.collision_detector.check_collision(item, point, rotation):
+            return PlacementResult(success=False, reason="collision")
+        
+        # Check support constraints
+        if not self.support_validator.validate_support(item, point, rotation):
+            return PlacementResult(success=False, reason="insufficient_support")
+        
+        # Check weight constraints
+        if not self.weight_manager.validate_placement(item, point, rotation):
+            return PlacementResult(success=False, reason="weight_violation")
+        
+        # Additional check: ensure unstackable items don't have anything above them
+        if item.stackability == Stackability.UNSTACKABLE:
+            if not self._check_no_items_above_unstackable(item, point, rotation):
+                return PlacementResult(success=False, reason="unstackable_cannot_have_items_above")
+        
+        # All constraints satisfied - place the item
+        placed_item = PlacedItem(item, point, rotation)
+        return PlacementResult(success=True, placed_item=placed_item)
+    
+    def _check_no_items_above_unstackable(self, item: Item, point: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check that no items are placed above unstackable items"""
+        # For unstackable items, we need to ensure that no other items are placed above them
+        # This is already handled by the collision detection, but we can add additional validation
+        
+        # Create a temporary placed item to check its bounds
+        temp_placed = PlacedItem(item, point, rotation)
+        temp_bounds = temp_placed.bounds
+        
+        # Check if any existing placed items would be above this unstackable item
+        for placed_item in self.placed_items:
+            if placed_item.position.z > temp_bounds[1].z:  # If existing item is above this unstackable item
+                # Check if there's any overlap in x,y coordinates
+                if self._aabb_overlap_xy(temp_bounds, placed_item.bounds):
+                    return False  # There's an item above this unstackable item
+        
+        return True
+    
+    def _aabb_overlap_xy(self, bounds1: Tuple[Point3D, Point3D], bounds2: Tuple[Point3D, Point3D]) -> bool:
+        """Check if two bounding boxes overlap in X and Y dimensions (ignoring Z)"""
+        min1, max1 = bounds1
+        min2, max2 = bounds2
+        
+        return not (max1.x <= min2.x or min1.x >= max2.x or
+                   max1.y <= min2.y or min1.y >= max2.y)
+    
+    def _check_geometric_constraints(self, item: Item, point: Point3D, rotation: Tuple[float, float, float]) -> bool:
+        """Check if item fits within truck boundaries"""
+        truck_l, truck_w, truck_h = self.truck_dimensions
+        item_l, item_w, item_h = rotation
+        
+        # Check if item fits in truck dimensions
+        if (point.x + item_l > truck_l or 
+            point.y + item_w > truck_w or 
+            point.z + item_h > truck_h or
+            point.x < 0 or point.y < 0 or point.z < 0):
+            return False
+        
+        return True
+    
+    def _handle_successful_placement(self, placed_item: PlacedItem, point: Point3D):
+        """Handle successful item placement"""
+        # Add to placed items
+        self.placed_items.append(placed_item)
+        
+        # Remove from unplaced items
+        self.unplaced_items.remove(placed_item.item)
+        
+        # Mark point as used
+        self.point_manager.mark_point_used(point)
+        
+        # Add to managers
+        self.collision_detector.add_placed_item(placed_item)
+        self.support_validator.add_placed_item(placed_item)
+        self.weight_manager.add_placed_item(placed_item)
+        
+        # Generate new points
+        new_points = self.point_manager.generate_new_points(placed_item)
+        for i, new_point in enumerate(new_points):
+            self.point_manager.add_point(new_point, priority=i+1)
+    
+    def _handle_failed_placement(self, point: Point3D):
+        """Handle failed placement attempt"""
+        self.point_manager.mark_point_blocked(point)
+    
+    def _generate_packing_result(self) -> Dict[str, Any]:
+        """Generate comprehensive packing result"""
+        # Calculate packing efficiency
+        total_volume = self.truck_dimensions[0] * self.truck_dimensions[1] * self.truck_dimensions[2]
+        used_volume = sum(item.volume for item in self.placed_items)
+        efficiency = (used_volume / total_volume) * 100 if total_volume > 0 else 0
+        
+        # Calculate weight distribution
+        total_weight = sum(item.item.weight for item in self.placed_items)
+        
+        return {
+            "success": True,
+            "placed_items": [
+                {
+                    "id": item.item.id,
+                    "priority": getattr(item.item, 'priority', 'N/A'),
+                    "stackability": item.item.stackability.value,
+                    "route": getattr(item.item, 'route', 'N/A'),
+                    "position": {"x": item.position.x, "y": item.position.y, "z": item.position.z},
+                    "rotation": item.rotation,
+                    "dimensions": {"length": item.rotation[0], "width": item.rotation[1], "height": item.rotation[2]},
+                    "weight": item.item.weight
+                }
+                for item in self.placed_items
+            ],
+            "unplaced_items": [
+                {
+                    "id": item.id, 
+                    "priority": getattr(item, 'priority', 'N/A'),
+                    "volume": item.volume, 
+                    "weight": item.weight, 
+                    "stackability": item.stackability.value,
+                    "route": getattr(item, 'route', 'N/A')
+                } 
+                for item in self.unplaced_items
+            ],
+            "efficiency": round(efficiency, 2),
+            "total_weight": total_weight,
+            "truck_dimensions": self.truck_dimensions,
+            "statistics": {
+                "items_placed": len(self.placed_items),
+                "items_unplaced": len(self.unplaced_items),
+                "total_items": len(self.placed_items) + len(self.unplaced_items)
+            }
+        }
+
+# Example usage and testing
+if __name__ == "__main__":
+    # Create a sample truck
+    truck_length, truck_width, truck_height = 13.62, 2.48, 2.7  # EU Euroliner dimensions
+    
+    # Create sample items
+    items = [
+        Item("box1", 1.0, 0.8, 0.6, 50.0, can_rotate=True),
+        Item("box2", 1.2, 0.9, 0.7, 60.0, can_rotate=True),
+        Item("box3", 0.8, 0.6, 0.5, 40.0, can_rotate=True),
+        Item("pallet1", 1.2, 0.8, 0.15, 200.0, can_rotate=False, is_palletized=True),
+    ]
+    
+    # Create packer and run algorithm
+    packer = BinPackerV3(truck_length, truck_width, truck_height)
+    result = packer.pack_items(items)
+    
+    print("Packing Result:")
+    print(f"Efficiency: {result['efficiency']}%")
+    print(f"Items placed: {result['statistics']['items_placed']}")
+    print(f"Items unplaced: {result['statistics']['items_unplaced']}")
+    print(f"Total weight: {result['total_weight']} kg")
+    
+    print("\nPlaced Items:")
+    for item in result['placed_items']:
+        print(f"  {item['id']}: pos({item['position']['x']:.2f}, {item['position']['y']:.2f}, {item['position']['z']:.2f})") 
