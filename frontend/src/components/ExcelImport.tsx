@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import './ExcelImport.css';
+import { AlertCircle, ArrowLeft, FileSpreadsheet, UploadCloud } from 'lucide-react';
+import Modal from './ui/Modal';
 
 interface ColumnMapping {
   [key: string]: string;
@@ -52,7 +53,6 @@ const ExcelImport: React.FC<ExcelImportProps> = ({ isOpen, onClose, onImport }) 
         // Simple: Generate columns A to Z
         const columns = generateColumns();
         setAvailableColumns(columns);
-        setStep(2);
       } else {
         setError('Please select a valid Excel file (.xlsx, .xls) or CSV file.');
       }
@@ -178,8 +178,8 @@ const ExcelImport: React.FC<ExcelImportProps> = ({ isOpen, onClose, onImport }) 
           console.log('Column mapping used:', columnMapping);
           
           onImport(processedData, columnMapping);
-          onClose();
           setIsProcessing(false);
+          handleClose();
           
         } catch (parseError) {
           console.error('Excel parsing error:', parseError);
@@ -222,167 +222,177 @@ const ExcelImport: React.FC<ExcelImportProps> = ({ isOpen, onClose, onImport }) 
   if (!isOpen) return null;
 
   return (
-    <div className='excel-import-overlay' onClick={handleClose}>
-      <div className='excel-import-modal' onClick={(e) => e.stopPropagation()}>
-        <div className='modal-header'>
-          <h2>📊 Import Excel Data</h2>
-          <button className='close-btn' onClick={handleClose} aria-label="Close modal">×</button>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Import Excel Data"
+      description="Upload a spreadsheet and map its columns to item fields."
+      maxWidthClassName="max-w-3xl"
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            {step === 2 ? (
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 transition-all duration-200"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all duration-200"
+            >
+              Cancel
+            </button>
+            {step === 1 ? (
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                disabled={!file}
+                className="px-4 py-2 rounded-lg bg-cyan-600 text-white font-medium hover:bg-cyan-700 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={Object.keys(columnMapping).length < 4 || isProcessing}
+                className="px-4 py-2 rounded-lg bg-cyan-600 text-white font-medium hover:bg-cyan-700 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? 'Importing...' : 'Import'}
+              </button>
+            )}
+          </div>
         </div>
+      }
+    >
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 mt-0.5" />
+          <div className="text-sm">{error}</div>
+        </div>
+      )}
 
-        <div className='modal-content'>
-          {error && (
-            <div className='error-message'>
-              <strong>⚠️ Error:</strong> {error}
-            </div>
-          )}
+      {step === 1 && (
+        <div className="space-y-4">
+          <div className="text-sm font-semibold text-slate-900">Step 1: Select file</div>
+          <div className="text-sm text-slate-600">
+            Supported formats: <span className="font-medium text-slate-900">.xlsx</span>,{' '}
+            <span className="font-medium text-slate-900">.xls</span>,{' '}
+            <span className="font-medium text-slate-900">.csv</span>.
+          </div>
 
-          {step === 1 && (
-            <div className='step-1'>
-              <h3>Step 1: Select Excel File</h3>
-              <p>Please select an Excel file (.xlsx, .xls) or CSV file containing your cargo data.</p>
-              
-              <div className='file-upload-area'>
-                <input
-                  type='file'
-                  ref={fileInputRef}
-                  accept='.xlsx,.xls,.csv'
-                  onChange={handleFileSelect}
-                  style={{ display: 'none' }}
-                />
-                <button 
-                  className='upload-btn'
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  📁 Choose Excel File
-                </button>
-                {file && (
-                  <div className='selected-file'>
-                    <span>✅ Selected: {file.name}</span>
-                    <small>Size: {(file.size / 1024).toFixed(1)} KB</small>
-                  </div>
-                )}
-              </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all duration-200"
+            >
+              <UploadCloud className="h-5 w-5 text-slate-500" />
+              Choose Excel/CSV File
+            </button>
 
-              <div className='file-requirements'>
-                <h4>📋 File Requirements:</h4>
-                <ul>
-                  <li>Supported formats: .xlsx, .xls, .csv</li>
-                  <li>First row should contain column headers</li>
-                  <li>Data should start from row 2</li>
-                  <li>Required fields: Length, Width, Height, Weight</li>
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className='step-2'>
-              <h3>Step 2: Map Columns</h3>
-              <p>Tell us which columns contain which data:</p>
-              
-              <div className='column-mapping'>
-                <h4>Required Fields *</h4>
-                {requiredFields.map(field => (
-                  <div key={field} className='mapping-row'>
-                    <label className='field-label required'>
-                      {field.charAt(0).toUpperCase() + field.slice(1)} *
-                    </label>
-                    <select
-                      value={columnMapping[field] || ''}
-                      onChange={(e) => handleColumnMapping(e.target.value, field)}
-                      required
-                      className={columnMapping[field] ? 'mapped' : ''}
-                    >
-                      <option value=''>Select column...</option>
-                      {availableColumns.map(col => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-                
-                <h4>Optional Fields</h4>
-                {optionalFields.map(field => (
-                  <div key={field} className='mapping-row'>
-                    <label className='field-label'>
-                      {field.charAt(0).toUpperCase() + field.slice(1)}
-                    </label>
-                    <select
-                      value={columnMapping[field] || ''}
-                      onChange={(e) => handleColumnMapping(e.target.value, field)}
-                      className={columnMapping[field] ? 'mapped' : ''}
-                    >
-                      <option value=''>Select column...</option>
-                      {availableColumns.map(col => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-
-              <div className='exclude-rows'>
-                <label>🚫 Exclude Rows (e.g., 1-3, 5, 8-10):</label>
-                <input
-                  type='text'
-                  value={excludeRows}
-                  onChange={(e) => setExcludeRows(e.target.value)}
-                  placeholder='Leave empty to include all rows'
-                />
-                <small>Use comma-separated values or ranges (e.g., 1-3, 5, 8-10)</small>
-              </div>
-
-              <div className='preview-section'>
-                <h4>🔍 Column Mapping Verification</h4>
-                <div className='preview-table'>
-                  {Object.keys(columnMapping).length > 0 ? (
-                    <div className='mapping-verification'>
-                      <h5>✅ Mapped Fields:</h5>
-                      <div className='mapped-fields'>
-                        {Object.entries(columnMapping).map(([field, column]) => (
-                          <div key={field} className='mapped-field'>
-                            <span className='field-name'>{field.charAt(0).toUpperCase() + field.slice(1)}</span>
-                            <span className='arrow'>→</span>
-                            <span className='column-name'>{column}</span>
-                          </div>
-                        ))}
-                      </div>
-                      
-                      <h5>📊 Available Columns (A to Z):</h5>
-                      <div className='available-columns'>
-                        {availableColumns.map(col => (
-                          <span 
-                            key={col} 
-                            className={`column-badge ${Object.values(columnMapping).includes(col) ? 'mapped' : 'unmapped'}`}
-                          >
-                            {col}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <p>Map columns above to see the verification</p>
-                  )}
+            {file ? (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                <FileSpreadsheet className="h-5 w-5 text-cyan-600 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900 truncate">{file.name}</div>
+                  <div className="text-sm text-slate-600">Size: {(file.size / 1024).toFixed(1)} KB</div>
                 </div>
               </div>
+            ) : (
+              <div className="mt-3 text-sm text-slate-600">No file selected yet.</div>
+            )}
+          </div>
 
-              <div className='modal-actions'>
-                <button className='btn-secondary' onClick={() => setStep(1)}>
-                  ← Back
-                </button>
-                <button 
-                  className='btn-primary'
-                  onClick={handleImport}
-                  disabled={Object.keys(columnMapping).length < 4 || isProcessing}
-                >
-                  {isProcessing ? '🔄 Processing...' : '📥 Import Data'}
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="text-sm text-slate-600">
+            Required fields to optimize: <span className="font-medium text-slate-900">Length, Width, Height, Weight</span>.
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-6">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Step 2: Map columns</div>
+            <div className="mt-1 text-sm text-slate-600">Select which spreadsheet columns correspond to each field.</div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-slate-900">Required fields</div>
+              {requiredFields.map((field) => (
+                <div key={field} className="grid grid-cols-2 gap-3 items-center">
+                  <div className="text-sm text-slate-700">
+                    {field.charAt(0).toUpperCase() + field.slice(1)}
+                    <span className="text-red-600"> *</span>
+                  </div>
+                  <select
+                    value={columnMapping[field] || ''}
+                    onChange={(e) => handleColumnMapping(e.target.value, field)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value="">Select column...</option>
+                    {availableColumns.map((col) => (
+                      <option key={col} value={col}>
+                        {col}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-slate-900">Optional fields</div>
+              {optionalFields.map((field) => (
+                <div key={field} className="grid grid-cols-2 gap-3 items-center">
+                  <div className="text-sm text-slate-700">{field.charAt(0).toUpperCase() + field.slice(1)}</div>
+                  <select
+                    value={columnMapping[field] || ''}
+                    onChange={(e) => handleColumnMapping(e.target.value, field)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value="">Select column...</option>
+                    {availableColumns.map((col) => (
+                      <option key={col} value={col}>
+                        {col}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <label className="block text-xs font-medium text-slate-700 mb-1">Exclude rows (optional)</label>
+            <input
+              type="text"
+              value={excludeRows}
+              onChange={(e) => handleExcludeRows(e.target.value)}
+              placeholder="e.g. 1-3, 5, 8-10"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+            <div className="mt-2 text-xs text-slate-400">Use comma-separated numbers or ranges.</div>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 };
 

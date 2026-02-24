@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { RefreshCcw, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface TruckVisualizationProps {
   truckDimensions: {
@@ -13,6 +14,8 @@ interface TruckVisualizationProps {
   showLabels?: boolean;
   showWireframe?: boolean;
   selectedItemId?: string | null;
+  containerClassName?: string;
+  useAspectVideo?: boolean;
 }
 
 // Animated Item Component with Hover Effects
@@ -89,8 +92,9 @@ const AnimatedItem: React.FC<{
       {showLabels && isHovered && (
         <Html position={[0, dimensions.height / 2 + 0.1, 0]} center>
           <div style={{
-            background: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
+            background: 'rgba(255, 255, 255, 0.9)',
+            color: '#0f172a',
+            border: '1px solid rgba(148, 163, 184, 0.6)',
             padding: '4px 8px',
             borderRadius: '4px',
             fontSize: '12px',
@@ -116,7 +120,7 @@ const TruckContainer: React.FC<{
       <mesh receiveShadow raycast={null as any}>
         <boxGeometry args={[dimensions.length, dimensions.height, dimensions.width]} />
         <meshStandardMaterial 
-          color="lightblue" 
+          color="#e2e8f0"
           transparent 
           opacity={0.2}
           depthWrite={false}
@@ -132,45 +136,10 @@ const TruckContainer: React.FC<{
       {showWireframe && (
         <lineSegments raycast={null as any}>
           <edgesGeometry args={[new THREE.BoxGeometry(dimensions.length, dimensions.height, dimensions.width)]} />
-          <lineBasicMaterial color="#0066cc" opacity={0.6} transparent />
+          <lineBasicMaterial color="#0891b2" opacity={0.55} transparent />
         </lineSegments>
       )}
     </group>
-  );
-};
-
-// Camera Controller Component
-const CameraController: React.FC<{ 
-  truckDimensions: any;
-  placedItems: any[];
-}> = ({ truckDimensions, placedItems }) => {
-  const controlsRef = useRef<any>(null);
-  
-  useEffect(() => {
-    if (controlsRef.current) {
-      // Set the target to the center of the truck
-      const centerX = truckDimensions.length / 2;
-      const centerY = truckDimensions.height / 2;
-      const centerZ = truckDimensions.width / 2;
-      
-      controlsRef.current.target.set(centerX, centerY, centerZ);
-      controlsRef.current.update();
-    }
-  }, [truckDimensions, placedItems]);
-
-  return (
-    <OrbitControls
-      ref={controlsRef}
-      enablePan={true}
-      enableZoom={true}
-      enableRotate={true}
-      minDistance={2}
-      maxDistance={100}
-      dampingFactor={0.05}
-      enableDamping={true}
-      autoRotate={false}
-      autoRotateSpeed={1}
-    />
   );
 };
 
@@ -181,8 +150,11 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
   showLabels = true,
   showWireframe = true,
   selectedItemId = null,
+  containerClassName,
+  useAspectVideo = true,
 }) => {
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+  const controlsRef = useRef<any>(null);
 
 
   const getCameraPosition = (): [number, number, number] => {
@@ -196,17 +168,83 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
     return [centerX + distance, centerY + distance, centerZ + distance];
   };
 
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    const centerX = truckDimensions.length / 2;
+    const centerY = truckDimensions.height / 2;
+    const centerZ = truckDimensions.width / 2;
+    controlsRef.current.target.set(centerX, centerY, centerZ);
+    controlsRef.current.update();
+  }, [truckDimensions, placedItems]);
+
+  const zoomBy = (factor: number) => {
+    const c = controlsRef.current;
+    if (!c) return;
+    const cam = c.object as THREE.PerspectiveCamera;
+    const target = c.target as THREE.Vector3;
+    const dir = new THREE.Vector3().subVectors(cam.position, target);
+
+    // Clamp distance for safety
+    const currentDist = dir.length();
+    const nextDist = THREE.MathUtils.clamp(currentDist * factor, 2, 100);
+    dir.setLength(nextDist);
+    cam.position.copy(target.clone().add(dir));
+    cam.updateProjectionMatrix();
+    c.update();
+  };
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <Canvas 
-        camera={{ 
-          position: getCameraPosition(), 
+    <div
+      className={[
+        'bg-slate-100 rounded-xl overflow-hidden border border-slate-200 relative',
+        useAspectVideo ? 'aspect-video' : '',
+        containerClassName || '',
+      ].join(' ').trim()}
+    >
+      {/* In-viewport toolbar */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => zoomBy(0.85)}
+          className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white transition-all duration-200"
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1.15)}
+          className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white transition-all duration-200"
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => controlsRef.current?.reset?.()}
+          className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white transition-all duration-200"
+          aria-label="Reset view"
+          title="Reset"
+        >
+          <RefreshCcw className="h-4 w-4" />
+        </button>
+      </div>
+
+      <Canvas
+        style={{ width: '100%', height: '100%' }}
+        camera={{
+          position: getCameraPosition(),
           fov: 50,
           near: 0.1,
-          far: 1000
+          far: 1000,
         }}
         shadows
       >
+        {/* Match the light viewport background */}
+        <color attach="background" args={['#f1f5f9']} />
+
         {/* Enhanced Lighting */}
         <ambientLight intensity={0.4} />
         <directionalLight
@@ -219,7 +257,18 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
         <pointLight position={[-10, -10, -10]} intensity={0.3} />
         
         {/* Camera Controls */}
-        <CameraController truckDimensions={truckDimensions} placedItems={placedItems} />
+        <OrbitControls
+          ref={controlsRef}
+          enablePan={true}
+          enableZoom={true}
+          enableRotate={true}
+          minDistance={2}
+          maxDistance={100}
+          dampingFactor={0.05}
+          enableDamping={true}
+          autoRotate={false}
+          autoRotateSpeed={1}
+        />
         
         {/* Truck Container */}
         <TruckContainer dimensions={truckDimensions} showWireframe={showWireframe} />
@@ -242,8 +291,8 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
           args={[
             Math.max(truckDimensions.length, truckDimensions.width) * 2, 
             20, 
-            '#cccccc', 
-            '#cccccc'
+            '#cbd5e1', 
+            '#cbd5e1'
           ]} 
           position={[truckDimensions.length / 2, 0.001, truckDimensions.width / 2]}
         />
@@ -251,8 +300,6 @@ const TruckVisualization: React.FC<TruckVisualizationProps> = ({
         {/* Axes helper */}
         <axesHelper args={[Math.max(truckDimensions.length, truckDimensions.width, truckDimensions.height)]} position={[0, 0.002, 0]} />
       </Canvas>
-      
-
     </div>
   );
 };

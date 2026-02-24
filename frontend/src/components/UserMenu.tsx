@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import { ChevronRight, Database, History, LineChart, LogOut, Settings, User, X } from 'lucide-react';
 
 interface UserMenuProps {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface UserMenuProps {
 const UserMenu: React.FC<UserMenuProps> = ({ isOpen, onClose, onNavigate }) => {
   const { user } = useAuth();
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  void activeSection;
+  void setActiveSection;
 
   const handleSignOut = async () => {
     try {
@@ -32,118 +35,80 @@ const UserMenu: React.FC<UserMenuProps> = ({ isOpen, onClose, onNavigate }) => {
   if (!isOpen) return null;
 
   return (
-    <div className='user-menu-overlay' onClick={onClose}>
-      <div className='user-menu' onClick={(e) => e.stopPropagation()}>
-        <div className='user-menu-header'>
-          <div className='user-menu-title'>
-            <span className='user-icon'>👤</span>
-            <h3>User Menu</h3>
-          </div>
-          <button className='close-btn' onClick={onClose} aria-label="Close menu">
-            ×
+    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="absolute inset-y-0 right-0 w-full max-w-sm bg-white shadow-2xl border-l border-slate-200"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="User menu"
+      >
+        <div className="h-16 px-6 flex items-center justify-between border-b border-slate-800 bg-slate-900">
+          <div className="text-sm font-bold text-slate-100">Account</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 transition-all duration-200"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
-        
-        <div className='user-menu-content'>
-          <div className='user-info'>
-            <div className='user-avatar'>
-              <span className='avatar-icon'>👤</span>
-            </div>
-            <div className='user-details'>
-              <p className='user-email'><strong>{user?.email}</strong></p>
-              <p className='user-status'>✅ Active Session</p>
+
+        <div className="p-6 space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center">
+                <User className="h-5 w-5 text-slate-600" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900 truncate">{user?.email || 'Signed in'}</div>
+                <div className="text-xs text-slate-400">Active session</div>
+              </div>
             </div>
           </div>
-          
-          <div className='menu-actions'>
-            <div className='menu-section'>
-              <h4 className='section-title'>📊 Data Management</h4>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('profile')}
-                onMouseEnter={() => setActiveSection('profile')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>👤</span>
-                <span className='btn-text'>User Profile</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('data')}
-                onMouseEnter={() => setActiveSection('data')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>📁</span>
-                <span className='btn-text'>My Data & Imports</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-            </div>
 
-            <div className='menu-section'>
-              <h4 className='section-title'>💾 Optimization</h4>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('saved')}
-                onMouseEnter={() => setActiveSection('saved')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>💾</span>
-                <span className='btn-text'>Saved Optimization Runs</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('history')}
-                onMouseEnter={() => setActiveSection('history')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>📈</span>
-                <span className='btn-text'>Optimization History</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('analytics')}
-                onMouseEnter={() => setActiveSection('analytics')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>📊</span>
-                <span className='btn-text'>Performance Analytics</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-            </div>
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Navigation</div>
+            <MenuButton icon={<User className="h-4 w-4" />} label="User Profile" onClick={() => handleMenuAction('profile')} />
+            <MenuButton icon={<Database className="h-4 w-4" />} label="My Data & Imports" onClick={() => handleMenuAction('data')} />
+            <MenuButton icon={<History className="h-4 w-4" />} label="Optimization History" onClick={() => handleMenuAction('history')} />
+            <MenuButton icon={<LineChart className="h-4 w-4" />} label="Performance Analytics" onClick={() => handleMenuAction('analytics')} />
+            <MenuButton icon={<Settings className="h-4 w-4" />} label="Settings" onClick={() => handleMenuAction('settings')} />
+          </div>
 
-            <div className='menu-section'>
-              <h4 className='section-title'>⚙️ Settings</h4>
-              <button 
-                className='menu-btn' 
-                onClick={() => handleMenuAction('settings')}
-                onMouseEnter={() => setActiveSection('settings')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>⚙️</span>
-                <span className='btn-text'>Settings & Preferences</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-            </div>
-
-            <div className='menu-section signout-section'>
-              <button 
-                className='menu-btn signout-btn' 
-                onClick={handleSignOut}
-                onMouseEnter={() => setActiveSection('signout')}
-                onMouseLeave={() => setActiveSection(null)}
-              >
-                <span className='btn-icon'>🚪</span>
-                <span className='btn-text'>Sign Out</span>
-                <span className='btn-arrow'>→</span>
-              </button>
-            </div>
+          <div className="pt-2 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full inline-flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-red-600 hover:bg-red-50 transition-all duration-200"
+            >
+              <span className="inline-flex items-center gap-2 text-sm font-medium">
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </span>
+              <ChevronRight className="h-4 w-4 text-red-400" />
+            </button>
           </div>
         </div>
       </div>
     </div>
+  );
+};
+
+const MenuButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void }> = ({ icon, label, onClick }) => {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full inline-flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50 transition-all duration-200"
+    >
+      <span className="inline-flex items-center gap-2 text-sm font-medium">
+        <span className="text-slate-500">{icon}</span>
+        {label}
+      </span>
+      <ChevronRight className="h-4 w-4 text-slate-400" />
+    </button>
   );
 };
 
